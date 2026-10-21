@@ -617,3 +617,55 @@ describe("PTR-138 windowAvailabilityFailure", () => {
     });
   });
 });
+
+describe("PTR-135 buffered occupancy in search", () => {
+  // The ledger reader returns each commitment's occupied period: its requested times extended by
+  // its stored buffers. A 10:00–12:00 booking at a venue with 30 minutes setup and 45 minutes
+  // turnaround occupies 09:30–12:45.
+  const bufferedBooking = {
+    id: "booking-1",
+    label: "another event",
+    startsAt: "2026-10-05T09:30:00",
+    endsAt: "2026-10-05T12:45:00",
+  };
+
+  it("refuses a window that overlaps only another booking's turnaround buffer", () => {
+    expect(
+      failures(
+        venue,
+        { date: "2026-10-05", startTime: "12:30", endTime: "13:00" },
+        [],
+        [bufferedBooking]
+      )
+    ).toEqual([{ criterion: "booking", message: "Booked for another event on 2026-10-05" }]);
+  });
+
+  it("leaves a window that touches the buffer end free", () => {
+    expect(
+      suits(
+        venue,
+        { date: "2026-10-05", startTime: "12:45", endTime: "13:00" },
+        [],
+        [bufferedBooking]
+      )
+    ).toBe(true);
+  });
+
+  it("refuses a window that overlaps only a hold's setup buffer", () => {
+    const bufferedHold = {
+      id: "hold-1",
+      label: "tentative hold",
+      startsAt: "2026-10-05T09:30:00",
+      endsAt: "2026-10-05T10:00:00",
+    };
+    expect(
+      failures(
+        venue,
+        { date: "2026-10-05", startTime: "09:00", endTime: "09:35" },
+        [],
+        [],
+        [bufferedHold]
+      )
+    ).toEqual([{ criterion: "hold", message: "Tentatively held on 2026-10-05" }]);
+  });
+});

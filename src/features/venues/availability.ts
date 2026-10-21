@@ -192,11 +192,11 @@ export interface AvailabilityProjection {
 /**
  * Occupancy and free gaps for one venue over a date range. Intervals have positive duration and
  * use the `[start, end)` form. This shape does not allow adjacent bookings. The projection shows
- * bookings without their buffers until PTR-135.
+ * buffered periods from the occupancy ledger.
  *
- * `bookings` contains approved rows from `loadVenueBookings` (PTR-36). `blocks` contain recorded
- * unavailability, and `holds` contain tentative holds (PTR-109). These intervals do not allow
- * adjacent bookings.
+ * `bookings` contains approved rows from `loadVenueBookings` (PTR-36), read from the ledger with
+ * stored buffers. `blocks` contain recorded unavailability, and `holds` contain tentative holds
+ * (PTR-109), both read from the ledger. These intervals do not allow adjacent bookings.
  */
 export function projectAvailability(
   range: AvailabilityPeriod,

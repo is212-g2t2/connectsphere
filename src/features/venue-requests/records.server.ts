@@ -132,14 +132,28 @@ interface VenueRequestEntryRow {
 
 /**
  * The flag names one kind per request, in the refusal order of `checkVenueTakesBooking` (ADR-7):
- * an unavailable venue first, then a booking, then a hold.
+ * the venue first (outside hours, then a block), then a booking, then a hold.
  */
-const CONFLICT_RANK: Record<VenueRequestConflict, number> = { unavailable: 0, booking: 1, hold: 2 };
+const CONFLICT_RANK: Record<VenueRequestConflict, number> = {
+  unavailable: 0,
+  blocked: 1,
+  booking: 2,
+  hold: 3,
+};
 
-/** The kind of one overlapping ledger row. A block's row makes the venue unavailable. */
+/** The kind of one overlapping ledger row. A block's row names the block. */
 function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRequestConflict {
-  if (row.isBlock) return "unavailable";
+  if (row.isBlock) return "blocked";
   return row.isHold ? "hold" : "booking";
+}
+
+/**
+ * PTR-135 AC2: name the cause of a window that the venue cannot host. A block overlap reads
+ * "Unavailable on …" in search's words (`availabilityFailure`); any other availability failure
+ * means the venue is not open then.
+ */
+export function windowFailureConflictKind(failure: { message: string }): VenueRequestConflict {
+  return failure.message.startsWith("Unavailable on") ? "blocked" : "unavailable";
 }
 
 /**
@@ -150,12 +164,14 @@ function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRe
  *
  * - `booking`, `hold`: the row overlaps an approved booking or a held hold at its venue once the
  *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).
- * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it.
- *   Read the blocks with `loadWindowAvailabilityFailures`, and a block's ledger row (`isBlockRow`)
- *   when the block reaches the row only through the buffers.
+ * - `blocked`: a recorded block overlaps the row's window, or a block's ledger row reaches it
+ *   through the buffers. Read the blocks with `loadWindowAvailabilityFailures`, and a block's
+ *   ledger row (`isBlockRow`) when the block reaches the row only through the buffers.
+ * - `unavailable`: the venue is not open for the row's window.
  *
  * Read in batched queries, not one read per row. Do not scope the reads to the caller's events:
- * the booking or hold can belong to an event the caller cannot see. Return only the kind.
+ * the booking or hold can belong to an event the caller cannot see. Return only the kind, never
+ * the other event's name.
  */
 export async function loadPendingConflictKinds(
   database: Pick<Database, "select">,
@@ -199,9 +215,11 @@ export async function loadPendingConflictKinds(
   ]);
   const unavailable = await loadWindowAvailabilityFailures(database, windows);
   const found = [
-    ...windows
-      .filter((_window, index) => unavailable[index] !== null)
-      .map(window => ({ id: window.id, kind: "unavailable" as const })),
+    ...windows.flatMap((window, index) => {
+      const failure = unavailable[index];
+      if (failure === null) return [];
+      return [{ id: window.id, kind: windowFailureConflictKind(failure) }];
+    }),
     ...conflicts.map(row => ({ id: row.id, kind: ledgerConflictKind(row) })),
   ];
   for (const { id, kind } of found) {

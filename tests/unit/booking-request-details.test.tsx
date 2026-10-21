@@ -58,10 +58,17 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(screen.queryByText("Conflicting booking")).toBeNull();
   });
 
-  it("labels a closed or blocked venue as unavailable (PTR-138 AC1)", () => {
+  it("labels a blocked venue as Venue blocked and closed hours as Outside operating hours", () => {
+    render(<BookingRequestDetails request={{ ...request, conflict: "blocked" }} />);
+
+    expect(screen.getByText("Venue blocked")).toBeTruthy();
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
+  });
+
+  it("labels hours outside opening as Outside operating hours", () => {
     render(<BookingRequestDetails request={{ ...request, conflict: "unavailable" }} />);
 
-    expect(screen.getByText("Venue unavailable")).toBeTruthy();
+    expect(screen.getByText("Outside operating hours")).toBeTruthy();
     expect(screen.queryByText("Conflicting booking")).toBeNull();
   });
 

@@ -247,11 +247,22 @@ describe("venue search handler (PTR-29)", () => {
       .select({ id: schema.venues.id })
       .from(schema.venues)
       .where(eq(schema.venues.name, venueNames[0]));
-    await database.insert(schema.venueUnavailability).values({
+    const [block] = await database
+      .insert(schema.venueUnavailability)
+      .values({
+        venueId: venue.id,
+        startsAt: "2027-03-15 10:30:00",
+        endsAt: "2027-03-15 11:30:00",
+        reason: "PTR-29 integration block",
+      })
+      .returning({ id: schema.venueUnavailability.id });
+    // The block writers record the ledger row in the same transaction (ADR-7).
+    await database.insert(schema.venueOccupancy).values({
       venueId: venue.id,
+      eventId: null,
+      venueUnavailabilityId: block.id,
       startsAt: "2027-03-15 10:30:00",
       endsAt: "2027-03-15 11:30:00",
-      reason: "PTR-29 integration block",
     });
 
     const result = await handleSearchVenues(
@@ -266,6 +277,51 @@ describe("venue search handler (PTR-29)", () => {
     );
 
     expect(result.venues).toEqual([]);
+  });
+
+  it("excludes a venue when only a stored booking buffer overlaps the requested time", async () => {
+    const [venue] = await database
+      .select({ id: schema.venues.id })
+      .from(schema.venues)
+      .where(eq(schema.venues.name, venueNames[0]));
+    // The write path stores the booking times with the venue's buffer minutes beside them. The
+    // readers must apply the buffers (PTR-135 AC1): 10:00-12:00 with 30/45 occupies 09:30-12:45.
+    const [booking] = await database
+      .insert(schema.venueRequests)
+      .values({
+        id: crypto.randomUUID(),
+        eventId,
+        venueId: venue.id,
+        requestedById: users.coordinator.id,
+        startsAt: "2027-03-15 10:00:00",
+        endsAt: "2027-03-15 12:00:00",
+        status: "approved",
+      })
+      .returning({ id: schema.venueRequests.id });
+    await database.insert(schema.venueOccupancy).values({
+      venueId: venue.id,
+      eventId,
+      venueRequestId: booking.id,
+      startsAt: "2027-03-15 10:00:00",
+      endsAt: "2027-03-15 12:00:00",
+      setupMinutes: 30,
+      turnaroundMinutes: 45,
+    });
+
+    const inBuffer = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "12:30", endTime: "13:00", location: "East Wing" },
+      session(users.coordinator),
+      database as never
+    );
+    expect(inBuffer.venues).toEqual([]);
+
+    // The half-open period ends at 12:45, so a later window is free.
+    const afterBuffer = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "12:45", endTime: "14:00", location: "East Wing" },
+      session(users.coordinator),
+      database as never
+    );
+    expect(afterBuffer.venues.map(row => row.name)).toEqual([venueNames[0]]);
   });
 
   it("prefills filters from an assigned event and applies them immediately", async () => {

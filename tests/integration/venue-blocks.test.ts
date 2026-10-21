@@ -539,9 +539,9 @@ describe("venue blocks (PTR-136)", () => {
     expect(await ledgerForBlock(block.id)).toHaveLength(1);
   });
 
-  // ADR-7: the flag and approval name an unavailable venue before a booking before a hold.
+  // ADR-7: the flag and approval name a block before a booking before a hold.
   it.each(["booking", "hold"] as const)(
-    "flags and refuses a window that meets a block and a %s as unavailable",
+    "flags and refuses a window that meets a block and a %s as blocked",
     async other => {
       // The other commitment takes 09:00-10:00 and the block takes 10:00-11:00. They do not
       // overlap, so both ledger rows stay active. The pending window 09:30-10:30 meets both.
@@ -551,7 +551,7 @@ describe("venue blocks (PTR-136)", () => {
       const pending = await raise("09:30", "10:30");
 
       const kinds = await loadPendingConflictKinds(database, [pending]);
-      expect(kinds.get(pending)).toBe("unavailable");
+      expect(kinds.get(pending)).toBe("blocked");
       await expect(approve(pending)).rejects.toMatchObject({
         name: "ConflictError",
         status: 409,
@@ -560,7 +560,7 @@ describe("venue blocks (PTR-136)", () => {
     }
   );
 
-  it("flags and refuses a window whose buffers meet a block and whose window meets a booking as unavailable", async () => {
+  it("flags and refuses a window whose buffers meet a block and whose window meets a booking as blocked", async () => {
     // The booking 10:00-11:00 occupies 09:30-11:00. The block 09:00-09:20 does not touch it.
     // The pending window 09:45-10:30 is free of the block, but its setup buffer starts at 09:15.
     await setBuffers(hallId, 30, 0);
@@ -569,7 +569,7 @@ describe("venue blocks (PTR-136)", () => {
     const pending = await raise("09:45", "10:30");
 
     const kinds = await loadPendingConflictKinds(database, [pending]);
-    expect(kinds.get(pending)).toBe("unavailable");
+    expect(kinds.get(pending)).toBe("blocked");
     await expect(approve(pending)).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,

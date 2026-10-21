@@ -119,4 +119,4 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 - The seed takes the venue lock before it writes a block row or a booking row. The constraint is the authority for both.
 - A hold request reserves no venue time, so another booking or hold can take its period first. Placement then re-checks the ledger and refuses the request. Placement refreshes the hold's buffers, because the venue can change its buffers while the request waits.
 - The requester or the event's assigned Coordinator can withdraw a requested hold. The row becomes `released` with `released_by_id`, and the ledger does not change.
-- Availability, search and the request queue still read the source tables until PTR-135 moves them to the ledger. Until then, they show bookings without buffers. The conflict flag reads the ledger with approval's expression, so it flags a request in the buffer of a booking.
+- Availability and search read the occupancy ledger with stored buffers, so they show the same occupied periods that writes enforce. The request-queue conflict flag reads the ledger with approval's expression, so it flags a request in the buffer of a booking.

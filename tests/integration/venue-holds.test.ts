@@ -342,11 +342,23 @@ describe("tentative venue holds (PTR-109)", () => {
       .update(schema.venues)
       .set({ setupMinutes: 30, turnaroundMinutes: 45 })
       .where(eq(schema.venues.id, venueId));
-    await database.insert(schema.venueUnavailability).values({
+    const [block] = await database
+      .insert(schema.venueUnavailability)
+      .values({
+        venueId,
+        startsAt: "2027-06-15 10:00:00",
+        endsAt: "2027-06-15 11:00:00",
+        reason: "Maintenance",
+      })
+      .returning({ id: schema.venueUnavailability.id });
+    // The block writers record the ledger row in the same transaction (ADR-7). A block row
+    // stores buffers of 0, so the calendar shows the recorded times.
+    await database.insert(schema.venueOccupancy).values({
       venueId,
+      eventId: null,
+      venueUnavailabilityId: block.id,
       startsAt: "2027-06-15 10:00:00",
       endsAt: "2027-06-15 11:00:00",
-      reason: "Maintenance",
     });
     const calendar = await handleGetVenueAvailability(
       { venueId, startDate: "2027-06-15", endDate: "2027-06-15" },

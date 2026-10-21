@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
@@ -19,7 +19,12 @@ import type { NotificationPayloads } from "#/features/notifications/message";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
-import { isDeadlock, overlapsPeriod } from "#/features/venue-requests/occupancy.server";
+import {
+  isDeadlock,
+  occupiedEnd,
+  occupiedStart,
+  overlapsPeriod,
+} from "#/features/venue-requests/occupancy.server";
 import {
   keyShareEvent,
   keyShareEvents,
@@ -356,6 +361,12 @@ export async function handleListVenueOptions(
 
 type VenueBlock = AvailabilityRecord & { venueId: number };
 
+/**
+ * Return live blocks that overlap a range, grouped by venue. Read the occupancy ledger, so the
+ * calendar and search show the same blocked periods that writes enforce. A block row stores
+ * buffers of 0, so its occupied period is its recorded period. A null end stays open until
+ * lifted; clamp it to the range end for display, as before.
+ */
 async function loadVenueBlocks(
   database: Pick<Database, "select">,
   venueIds: readonly number[],
@@ -368,18 +379,23 @@ async function loadVenueBlocks(
     .select({
       id: venueUnavailability.id,
       venueId: venueUnavailability.venueId,
-      startsAt: venueUnavailability.startsAt,
-      endsAt: sql<string>`coalesce(${venueUnavailability.endsAt}, least(${endsAt}::timestamp, timestamp '9999-12-31 23:59:59'))::text`,
+      startsAt: venueOccupancy.startsAt,
+      endsAt: sql<string>`coalesce(${venueOccupancy.endsAt}, least(${endsAt}::timestamp, timestamp '9999-12-31 23:59:59'))::text`,
       reason: venueUnavailability.reason,
-      openEnded: sql<boolean>`${venueUnavailability.endsAt} is null`,
+      openEnded: sql<boolean>`${venueOccupancy.endsAt} is null`,
     })
-    .from(venueUnavailability)
+    .from(venueOccupancy)
+    .innerJoin(
+      venueUnavailability,
+      eq(venueUnavailability.id, venueOccupancy.venueUnavailabilityId)
+    )
     .where(
       and(
-        inArray(venueUnavailability.venueId, venueIds),
+        inArray(venueOccupancy.venueId, venueIds),
+        eq(venueOccupancy.active, true),
+        isNotNull(venueOccupancy.venueUnavailabilityId),
         isNull(venueUnavailability.liftedAt),
-        lt(venueUnavailability.startsAt, endsAt),
-        or(isNull(venueUnavailability.endsAt), gt(venueUnavailability.endsAt, startsAt))
+        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${startsAt}::timestamp, ${endsAt}::timestamp, '[)')`
       )
     );
 
@@ -456,10 +472,18 @@ export async function loadWindowAvailabilityFailures(
 export type VenueBooking = AvailabilityRecord & { venueId: number };
 
 /**
- * Return approved bookings that overlap a range, grouped by venue (PTR-30 criterion 4). An
+ * Return approved bookings that overlap a range, grouped by venue (PTR-30 criterion 4). Read the
+ * occupancy ledger, so the calendar and search include each row's stored setup and turnaround
+ * time. A window that overlaps only another booking's buffer shows the venue unavailable. An
  * approved `venue_requests` row is the booking (PTR-36). Search and the availability calendar
  * both call this function. An integration test injects a loader into the search. Keep `label`
  * anonymous so the calendar and search do not reveal another event's name.
+ *
+ * One source can own more than one active row while a block suspends it in part: each piece
+ * carries the source id, so both pieces mark the same buffer conflict and the calendar keys them
+ * by their visible start. Suspended pieces (`suspendedPieceWhere`) stay listed beside the block,
+ * as the source-table readers listed a suspended booking, so the calendar keeps flagging both
+ * commitments of a buffer-change overlap and nothing resolves itself.
  */
 export type VenueBookingLoader = (
   database: Pick<Database, "select">,
@@ -478,32 +502,42 @@ export const loadVenueBookings: VenueBookingLoader = async (
 
   const rows = await database
     .select({
-      id: venueRequests.id,
-      venueId: venueRequests.venueId,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
+      id: venueOccupancy.venueRequestId,
+      venueId: venueOccupancy.venueId,
+      // The occupied period: the requested times extended by the buffers stored on the row.
+      // Bound display timestamps to the calendar's civil years, as `loadVenueHolds` does.
+      startsAt: sql<string>`greatest(${occupiedStart}, timestamp '0001-01-01 00:00:00')::text`,
+      endsAt: sql<string>`least(${occupiedEnd}, timestamp '9999-12-31 23:59:59')::text`,
     })
-    .from(venueRequests)
+    .from(venueOccupancy)
+    .innerJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
     .where(
       and(
-        inArray(venueRequests.venueId, venueIds),
+        inArray(venueOccupancy.venueId, venueIds),
+        or(eq(venueOccupancy.active, true), suspendedPieceWhere()),
+        isNotNull(venueOccupancy.venueRequestId),
         eq(venueRequests.status, "approved"),
-        // Use the same half-open overlap as the projection, without buffers. Periods that touch at
-        // a boundary do not conflict.
-        lt(venueRequests.startsAt, endsAt),
-        gt(venueRequests.endsAt, startsAt)
+        // Use the same half-open overlap as the projection, with stored buffers. Periods that
+        // touch at a boundary do not conflict.
+        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${startsAt}::timestamp, ${endsAt}::timestamp, '[)')`
       )
     )
     // Sort by start time so the result order is stable. The projection sorts the results again.
-    .orderBy(asc(venueRequests.startsAt));
+    .orderBy(asc(occupiedStart));
 
-  return rows.map(row => ({
-    id: row.id,
-    venueId: row.venueId,
-    startsAt: normalizeDatabaseTimestamp(row.startsAt),
-    endsAt: normalizeDatabaseTimestamp(row.endsAt),
-    label: "another event",
-  }));
+  return rows.flatMap(row =>
+    row.id === null
+      ? []
+      : [
+          {
+            id: row.id,
+            venueId: row.venueId,
+            startsAt: normalizeDatabaseTimestamp(row.startsAt),
+            endsAt: normalizeDatabaseTimestamp(row.endsAt),
+            label: "another event",
+          },
+        ]
+  );
 };
 
 export type VenueHold = AvailabilityRecord & {
@@ -518,10 +552,13 @@ export type VenueHold = AvailabilityRecord & {
 
 /**
  * Return active tentative holds that overlap a range, grouped by venue (PTR-109). The calendar
- * and search show these holds as occupied. A returned `startsAt`/`endsAt` pair is the occupied
- * period: the requested times extended by the hold's stored buffers, clamped to years 0001 to
- * 9999 for display. The overlap filter compares the unclamped period. The event join reads
- * ownership and status, but the calendar sends only the actions that they allow the viewer.
+ * and search show these holds as occupied. Read the occupancy ledger, so each hold shows the
+ * occupied period from its stored buffers, as the writers enforce it. A block can split a row
+ * into pieces with absolute times and buffers of 0; each active piece shows under the hold's id.
+ * Suspended pieces stay listed beside the block, as for bookings above.
+ * A returned `startsAt`/`endsAt` pair is the occupied period, clamped to years 0001 to 9999 for
+ * display. The overlap filter compares the unclamped period. The event join reads ownership and
+ * status, but the calendar sends only the actions that they allow the viewer.
  */
 export async function loadVenueHolds(
   database: Pick<Database, "select">,
@@ -531,15 +568,10 @@ export async function loadVenueHolds(
 ): Promise<VenueHold[]> {
   if (venueIds.length === 0) return [];
 
-  // The hold's occupied period: its requested times extended by the buffers stored on the hold.
-  // This reader uses the source table until PTR-135 moves it to `venue_occupancy`.
-  const occupiedStart = sql`${venueHolds.startsAt} - make_interval(mins => ${venueHolds.setupMinutes})`;
-  const occupiedEnd = sql`${venueHolds.endsAt} + make_interval(mins => ${venueHolds.turnaroundMinutes})`;
-
   const rows = await database
     .select({
       id: venueHolds.id,
-      venueId: venueHolds.venueId,
+      venueId: venueOccupancy.venueId,
       eventId: venueHolds.eventId,
       // Bound display timestamps to the calendar's civil years. Compare full extents below.
       startsAt: sql<string>`greatest(${occupiedStart}, timestamp '0001-01-01 00:00:00')::text`,
@@ -550,14 +582,16 @@ export async function loadVenueHolds(
       expiresAt: venueHolds.expiresAt,
       warnAt: venueHolds.warnAt,
     })
-    .from(venueHolds)
+    .from(venueOccupancy)
+    .innerJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
     .innerJoin(eventRequests, eq(venueHolds.eventId, eventRequests.id))
     .where(
       and(
-        inArray(venueHolds.venueId, venueIds),
+        inArray(venueOccupancy.venueId, venueIds),
+        or(eq(venueOccupancy.active, true), suspendedPieceWhere()),
+        isNotNull(venueOccupancy.venueHoldId),
         eq(venueHolds.status, "held"),
-        lt(occupiedStart, sql`${endsAt}::timestamp`),
-        gt(occupiedEnd, sql`${startsAt}::timestamp`)
+        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${startsAt}::timestamp, ${endsAt}::timestamp, '[)')`
       )
     )
     .orderBy(asc(occupiedStart), asc(venueHolds.id));
