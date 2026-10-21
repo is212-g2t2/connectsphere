@@ -25,6 +25,7 @@ import {
   placeLimit,
   placeMark,
   registrationRefusal,
+  totalVenueCapacity,
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
 import {
@@ -34,6 +35,7 @@ import {
 } from "#/features/events/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
+import { notSuspendedByLiveBlock } from "#/features/venues/blocked-arrangements.server";
 
 /**
  * Keep this module server-only. It imports `#/db/schema` as a value. `server-fns.ts` loads it
@@ -74,7 +76,8 @@ export async function handleRegisterForEvent(
     // unpublished one in the same way. The refusal then reveals nothing about the id.
     if (!event || !isPublishedForAttendees(event)) throw new AuthorizationError("Forbidden");
 
-    const booking = await approvedBooking(tx, event.id);
+    const bookings = await approvedBookings(tx, event.id);
+    const totalCapacity = totalVenueCapacity(bookings);
     const { registered, vips } = await countRegistrations(tx, event.id);
 
     const refusal = registrationRefusal({
@@ -83,13 +86,14 @@ export async function handleRegisterForEvent(
       alreadyRegistered: await isRegistered(tx, event.id, actor.id),
       registeredCount: registered,
       vipCount: vips,
-      venueCapacity: booking?.venueCapacity ?? null,
+      venueCapacity: totalCapacity,
     });
     if (refusal) throw new ConflictError(refusal);
 
     // The refusal rules guarantee both values. The throw only narrows the types.
     const capacity = event.registrationCapacity;
-    if (!booking || capacity === null) {
+    const booking = bookings.at(0);
+    if (!booking || capacity === null || totalCapacity === null) {
       throw new Error("Registration passed without an approved booking or a capacity");
     }
 
@@ -123,12 +127,18 @@ export async function handleRegisterForEvent(
           venueLocation: booking.venueLocation,
           startsAt: booking.startsAt,
           endsAt: booking.endsAt,
+          venues: bookings.map(row => ({
+            venueName: row.venueName,
+            venueLocation: row.venueLocation,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+          })),
         },
       },
     ]);
     // AC8 and AC9: Announce each threshold as the count crosses it. Only the registration that
     // reaches 90% of the place limit, or the limit itself, sends the notice.
-    const limit = placeLimit(capacity, booking.venueCapacity, vips);
+    const limit = placeLimit(capacity, totalCapacity, vips);
     if (placeMark(registered + 1, limit)) await announcePlaceMark(tx, event, registered + 1, limit);
 
     return { status: registration.status, registeredAt: registration.registeredAt.toISOString() };
@@ -179,8 +189,8 @@ export async function handleSearchVipAttendees(
 /**
  * PTR-111: The Organiser or the assigned Coordinator adds a VIP registration for an Attendee
  * account. The VIP takes the same event row lock as an Attendee's own registration. A VIP and an
- * Attendee racing for the venue's last place queue on it (AC3). Log the acting user and the time
- * (AC5).
+ * Attendee racing for the total venue's last place queue on it (AC3). Log the acting user and
+ * the time (AC5).
  */
 export async function handleAddVipRegistration(
   data: unknown,
@@ -203,13 +213,15 @@ export async function handleAddVipRegistration(
       throw new ConflictError(VIP_ALREADY_REGISTERED_MESSAGE);
     }
 
-    // AC2 and AC3: The registration capacity and period do not apply. The venue on the approved
-    // booking sets the only ceiling. With no approved booking, there is no ceiling.
-    const booking = await approvedBooking(tx, event.id);
-    if (!booking) throw new ConflictError(REGISTRATION_NOT_OPEN_MESSAGE);
+    // AC2 and AC3: The registration capacity and period do not apply. The total venue
+    // capacity on the approved bookings sets the only ceiling. With no approved booking, there
+    // is no ceiling.
+    const bookings = await approvedBookings(tx, event.id);
+    const totalCapacity = totalVenueCapacity(bookings);
+    if (totalCapacity === null) throw new ConflictError(REGISTRATION_NOT_OPEN_MESSAGE);
     const { registered, vips } = await countRegistrations(tx, event.id);
-    if (registered + vips >= booking.venueCapacity) {
-      throw new ConflictError(venueCapacityReachedMessage(booking.venueCapacity));
+    if (registered + vips >= totalCapacity) {
+      throw new ConflictError(venueCapacityReachedMessage(totalCapacity));
     }
 
     // Reuse the Attendee's one row for the event. A withdrawn registration of either kind
@@ -238,9 +250,9 @@ export async function handleAddVipRegistration(
     if (capacity === null) {
       throw new Error("A published event passed without a registration capacity");
     }
-    const after = placeLimit(capacity, booking.venueCapacity, vips + 1);
+    const after = placeLimit(capacity, totalCapacity, vips + 1);
     const mark = placeMark(registered, after);
-    if (mark && mark !== placeMark(registered, placeLimit(capacity, booking.venueCapacity, vips))) {
+    if (mark && mark !== placeMark(registered, placeLimit(capacity, totalCapacity, vips))) {
       await announcePlaceMark(tx, event, registered, after);
     }
   });
@@ -402,23 +414,44 @@ async function isRegistered(
   return rows.length > 0;
 }
 
-/** Return the venue for the event page: the earliest approved booking, as `records.server` picks it. */
-export async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
-  return (
-    await database
-      .select({
-        venueName: venues.name,
-        venueLocation: venues.location,
-        venueCapacity: venues.maxCapacity,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "approved")))
-      .orderBy(venueRequests.createdAt, venueRequests.id)
-      .limit(1)
-  ).at(0);
+/** One approved booking with its venue, as the registration readers list it. */
+export interface ApprovedVenueBooking {
+  venueId: number;
+  venueName: string;
+  venueLocation: string;
+  venueCapacity: number;
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
+ * List every approved booking of the event that no live venue block suspends, in booking creation order.
+ * The first entry keeps the single-venue fields that stored notifications carry. Callers sum
+ * distinct venues with `totalVenueCapacity`.
+ */
+export async function approvedBookings(
+  database: Pick<Database, "select">,
+  eventId: number
+): Promise<ApprovedVenueBooking[]> {
+  return database
+    .select({
+      venueId: venues.id,
+      venueName: venues.name,
+      venueLocation: venues.location,
+      venueCapacity: venues.maxCapacity,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .where(
+      and(
+        eq(venueRequests.eventId, eventId),
+        eq(venueRequests.status, "approved"),
+        notSuspendedByLiveBlock(database)
+      )
+    )
+    .orderBy(venueRequests.createdAt, venueRequests.id);
 }
 
 export async function countRegistrations(database: Pick<Database, "select">, eventId: number) {

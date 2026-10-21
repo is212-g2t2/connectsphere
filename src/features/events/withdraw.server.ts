@@ -8,14 +8,14 @@ import { parseEventRequestId } from "#/features/event-requests/schema";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
 import {
-  approvedBooking,
+  approvedBookings,
   countRegistrations,
   eventName,
   readEvent,
   stakeholderRecipients,
 } from "#/features/events/register.server";
 import type { EventRow } from "#/features/events/register.server";
-import { placeLimit } from "#/features/events/registration";
+import { placeLimit, totalVenueCapacity } from "#/features/events/registration";
 import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
@@ -56,10 +56,11 @@ export async function handleWithdrawFromEvent(
     // Take AC4 counts before the flip. A withdrawn VIP row drops `vips` and can raise the limit
     // while `registered` stays unchanged. Counting after the flip would blame the VIP for a place
     // the event never lost.
-    const booking = await approvedBooking(tx, event.id);
+    const bookings = await approvedBookings(tx, event.id);
+    const totalCapacity = totalVenueCapacity(bookings);
     const capacity = event.registrationCapacity;
     const countsBefore =
-      booking && capacity !== null ? await countRegistrations(tx, event.id) : null;
+      totalCapacity !== null && capacity !== null ? await countRegistrations(tx, event.id) : null;
 
     // Change the registration from `registered` to `withdrawn`. When the row is missing or
     // already `withdrawn`, the update returns nothing and the refusal fires. Resolve the caller's
@@ -95,14 +96,14 @@ export async function handleWithdrawFromEvent(
 
     // AC4: Check whether the event was at capacity before the withdrawal. Derive the after-values
     // from the flipped row. A withdrawing VIP leaves `registered` unchanged and drops `vips` by one.
-    if (booking && capacity !== null && countsBefore !== null) {
+    if (totalCapacity !== null && capacity !== null && countsBefore !== null) {
       const withdrawingVip = updated[0].vip;
       const registeredBefore = countsBefore.registered;
       const vipsBefore = countsBefore.vips;
       const registeredAfter = withdrawingVip ? registeredBefore : registeredBefore - 1;
       const vipsAfter = withdrawingVip ? vipsBefore - 1 : vipsBefore;
-      const limitBefore = placeLimit(capacity, booking.venueCapacity, vipsBefore);
-      const limitAfter = placeLimit(capacity, booking.venueCapacity, vipsAfter);
+      const limitBefore = placeLimit(capacity, totalCapacity, vipsBefore);
+      const limitAfter = placeLimit(capacity, totalCapacity, vipsAfter);
       // The withdrawal freed a place when normal registrations met the limit before and fall
       // below it after.
       if (registeredBefore >= limitBefore && registeredAfter < limitAfter) {

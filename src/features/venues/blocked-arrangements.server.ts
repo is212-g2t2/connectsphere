@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notExists, notInArray, sql } from "drizzle-orm";
 import type { AnyColumn, SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
@@ -31,6 +31,19 @@ export function suspendedPieceWhere(eventIdOrColumn?: AnyColumn | SQL | number):
   return eventIdOrColumn === undefined
     ? suspended
     : sql`${suspended} and ${venueOccupancy.eventId} = ${eventIdOrColumn}`;
+}
+
+/**
+ * PTR-141: a venue request that no live block suspends. Both approved-booking readers use this
+ * one condition, so the capacity reader and the event-page reader cannot drift apart.
+ */
+export function notSuspendedByLiveBlock(database: Pick<Database, "select">) {
+  return notExists(
+    database
+      .select({ id: venueOccupancy.id })
+      .from(venueOccupancy)
+      .where(and(suspendedPieceWhere(), eq(venueOccupancy.venueRequestId, venueRequests.id)))
+  );
 }
 
 /**

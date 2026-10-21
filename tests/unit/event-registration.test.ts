@@ -10,6 +10,7 @@ import {
   placeLimit,
   registrationAvailability,
   registrationRefusal,
+  totalVenueCapacity,
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
 
@@ -54,7 +55,7 @@ describe("registrationRefusal (PTR-45)", () => {
       venueCapacityReachedMessage(25)
     );
     expect(venueCapacityReachedMessage(25)).toBe(
-      "This event is full. The venue capacity of 25 is reached."
+      "This event is full. The total venue capacity of 25 is reached."
     );
   });
 
@@ -130,6 +131,43 @@ describe("placeLimit (PTR-45, PTR-111)", () => {
 
   it("is never below zero, even when a smaller venue now holds fewer than the VIPs", () => {
     expect(placeLimit(40, 10, 12)).toBe(0);
+  });
+
+  it("reads the total venue capacity, so a second venue raises the limit", () => {
+    const total = totalVenueCapacity([
+      { venueId: 1, venueCapacity: 30 },
+      { venueId: 2, venueCapacity: 20 },
+    ]);
+    expect(total).toBe(50);
+    expect(placeLimit(60, total ?? 0, 0)).toBe(50);
+  });
+});
+
+describe("totalVenueCapacity (PTR-141 AC1)", () => {
+  it("sums distinct venues and counts a repeated venue once", () => {
+    expect(
+      totalVenueCapacity([
+        { venueId: 1, venueCapacity: 30 },
+        { venueId: 2, venueCapacity: 20 },
+        { venueId: 1, venueCapacity: 30 },
+      ])
+    ).toBe(50);
+  });
+
+  it("returns null when no approved booking remains", () => {
+    expect(totalVenueCapacity([])).toBeNull();
+  });
+
+  it("refuses registration at the summed ceiling and names it (AC2)", () => {
+    const total = totalVenueCapacity([
+      { venueId: 1, venueCapacity: 30 },
+      { venueId: 2, venueCapacity: 20 },
+    ]);
+    const roomy = { ...open, registrationCapacity: 100, venueCapacity: total };
+    expect(registrationRefusal({ ...roomy, registeredCount: 49 })).toBeNull();
+    expect(registrationRefusal({ ...roomy, registeredCount: 50 })).toBe(
+      venueCapacityReachedMessage(50)
+    );
   });
 });
 

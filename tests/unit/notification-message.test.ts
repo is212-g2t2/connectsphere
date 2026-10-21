@@ -237,6 +237,44 @@ describe("notification payload parsing (PTR-55)", () => {
     const parsed = parse("event_safety_reconfirmation_required", { eventName: "Gala" });
     expect(parsed.payload).toEqual({ eventName: "Gala" });
   });
+
+  it("lists every approved venue on confirmation and registration, and old rows still parse", () => {
+    const confirmed = parse("event_confirmed", {
+      ...validPayloads.event_confirmed,
+      venues: [
+        {
+          venueName: "Harbour Hall",
+          startsAt: "2026-10-12 14:00:00",
+          endsAt: "2026-10-12 17:00:00",
+        },
+        {
+          venueName: "Rooftop Pavilion",
+          startsAt: "2026-10-13 09:00:00",
+          endsAt: "2026-10-13 12:00:00",
+        },
+      ],
+    });
+    expect(confirmed.payload).toMatchObject({ venues: expect.any(Array) });
+    expect(parse("event_confirmed", validPayloads.event_confirmed).payload).not.toHaveProperty(
+      "venues"
+    );
+
+    const registered = parse("event_registered", {
+      ...validPayloads.event_registered,
+      venues: [
+        {
+          venueName: "Harbour Hall",
+          venueLocation: "Pier 3",
+          startsAt: "2026-10-12 14:00:00",
+          endsAt: "2026-10-12 17:00:00",
+        },
+      ],
+    });
+    expect(registered.payload).toMatchObject({ venues: expect.any(Array) });
+    expect(parse("event_registered", validPayloads.event_registered).payload).not.toHaveProperty(
+      "venues"
+    );
+  });
 });
 
 describe("notification summaries (PTR-55 AC2)", () => {

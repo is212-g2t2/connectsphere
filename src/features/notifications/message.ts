@@ -182,6 +182,13 @@ const payloadSchemas = {
      * Absent on the Organiser's copy, as every row before this story.
      */
     audience: z.enum(["organiser", "attendee"]).optional(),
+    /**
+     * Every approved venue and window, in booking creation order. Optional so rows stored before the
+     * multi-venue story still parse. The single fields above keep the earliest booking.
+     */
+    venues: z
+      .array(z.object({ venueName: z.string(), startsAt: z.string(), endsAt: z.string() }))
+      .optional(),
   }),
   equipment_requested: z.object({
     eventName: z.string(),
@@ -222,6 +229,20 @@ const payloadSchemas = {
     /** Floating venue-local timestamps of the approved booking, as `event_confirmed` keeps them. */
     startsAt: z.string(),
     endsAt: z.string(),
+    /**
+     * Every approved venue and window, in booking creation order. Optional so rows stored before the
+     * multi-venue story still parse. The single fields above keep the earliest booking.
+     */
+    venues: z
+      .array(
+        z.object({
+          venueName: z.string(),
+          venueLocation: z.string(),
+          startsAt: z.string(),
+          endsAt: z.string(),
+        })
+      )
+      .optional(),
   }),
   /**
    * PTR-45 AC8 and AC9: the registration that took the event to 90% of its place limit, or to the

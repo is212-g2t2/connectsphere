@@ -134,6 +134,11 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
         quantity: line.quantity,
         state: arrangementStateLabel(line.arrangementStatus),
       })),
+      venues: venueRows
+        // The confirmation gate above refuses a suspended approved booking, so this list equals
+        // the live-block-filtered `approvedBookings` reader. Keep the two in step if the gate moves.
+        .filter(row => row.status === "approved")
+        .map(row => ({ venueName: row.venueName, startsAt: row.startsAt, endsAt: row.endsAt })),
     };
     // PTR-137 AC6: tell each registered Attendee the arrangements now confirmed. Raise one row
     // per attendee in this transaction, as every notification does; the event's place limit

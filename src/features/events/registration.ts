@@ -9,14 +9,31 @@ export const NOT_A_VIP_MESSAGE = "This Attendee holds no VIP registration for th
 export const VIPS_CLOSED_MESSAGE =
   "VIP registrations change only while the event is confirmed with registration on.";
 
-/** PTR-45 AC5: Name the venue's ceiling. Use the same opening words as the AC3 refusal. */
+/** PTR-45 AC5: Name the total ceiling. Use the same opening words as the AC3 refusal. */
 export function venueCapacityReachedMessage(venueCapacity: number): string {
-  return `${EVENT_FULL_MESSAGE} The venue capacity of ${venueCapacity} is reached.`;
+  return `${EVENT_FULL_MESSAGE} The total venue capacity of ${venueCapacity} is reached.`;
 }
 
 /**
- * Limit normal registration to the lower of the event's registration capacity and the venue
- * places left after VIPs. Read the venue places from the approved booking. VIPs take no
+ * Sum the capacities of the distinct venues with an approved booking. Count a venue once when
+ * it holds bookings for separate sessions. Return null when no approved booking remains.
+ */
+export function totalVenueCapacity(
+  bookings: readonly { venueId: number; venueCapacity: number }[]
+): number | null {
+  const seen = new Map<number, number>();
+  for (const booking of bookings) {
+    if (!seen.has(booking.venueId)) seen.set(booking.venueId, booking.venueCapacity);
+  }
+  if (seen.size === 0) return null;
+  let total = 0;
+  for (const capacity of seen.values()) total += capacity;
+  return total;
+}
+
+/**
+ * Limit normal registration to the lower of the event's registration capacity and the total
+ * venue places left after VIPs. Read the total places from the approved bookings. VIPs take no
  * registration-capacity places (PTR-111 AC2).
  */
 export function placeLimit(
@@ -47,7 +64,7 @@ interface RegistrationTerms {
   registeredCount: number;
   /** The event's `registered` VIP registrations. They hold venue places only (PTR-111). */
   vipCount: number;
-  /** The venue capacity from the event's approved booking. Null when the event has no booking. */
+  /** The total venue capacity from the event's approved bookings. Null when the event has none. */
   venueCapacity: number | null;
 }
 
@@ -57,9 +74,9 @@ interface RegistrationInput extends RegistrationTerms {
 }
 
 /**
- * PTR-50: Tell an Attendee about registration before they try. `full` names the venue capacity
- * when the venue sets the limit (PTR-45 AC5), else null. `unavailable` covers an event with no
- * terms or no approved booking. The refusal answers those as not open.
+ * PTR-50: Tell an Attendee about registration before they try. `full` names the total venue
+ * capacity when the venues set the limit (PTR-45 AC5), else null. `unavailable` covers an event
+ * with no terms or no approved booking. The refusal answers those as not open.
  */
 export type RegistrationAvailability =
   | { state: "open" }
@@ -85,11 +102,11 @@ function termsAvailability(
   if (terms.now < opens) return { state: "not_yet_open" };
   if (terms.now >= closes) return { state: "closed" };
 
-  // PTR-111: A confirmed event with a released booking takes no new registrations. It has no
-  // venue ceiling until an approved booking is recorded again.
+  // PTR-111: A confirmed event with no approved booking takes no new registrations. It has
+  // no venue ceiling until an approved booking is recorded again.
   if (terms.venueCapacity === null) return { state: "unavailable" };
-  // The venue limit applies to every registration, including VIPs (PTR-45 AC5, PTR-111 AC3).
-  // Name the venue when both limits are reached.
+  // The total venue limit applies to every registration, including VIPs (PTR-45 AC5, PTR-111
+  // AC3). Name the total when both limits are reached.
   if (terms.registeredCount + terms.vipCount >= terms.venueCapacity) {
     return { state: "full", venueCapacity: terms.venueCapacity };
   }
@@ -97,7 +114,7 @@ function termsAvailability(
   return { state: "open" };
 }
 
-/** PTR-45 AC3 and AC5: Message for a full event. It names the venue when the venue sets the limit. */
+/** PTR-45 AC3 and AC5: Message for a full event. It names the total when the venues set the limit. */
 export function eventFullMessage(venueCapacity: number | null): string {
   return venueCapacity === null ? EVENT_FULL_MESSAGE : venueCapacityReachedMessage(venueCapacity);
 }
