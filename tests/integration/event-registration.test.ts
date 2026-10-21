@@ -12,7 +12,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { COMPLETED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/completion";
 import { handleListEvents } from "#/features/events/records.server";
-import { handleRegisterForEvent } from "#/features/events/register.server";
+import { handleJoinWaitingList, handleRegisterForEvent } from "#/features/events/register.server";
 import { handleWithdrawFromEvent } from "#/features/events/withdraw.server";
 import {
   ALREADY_REGISTERED_MESSAGE,
@@ -400,6 +400,27 @@ describe("registering for an event (PTR-45)", () => {
     await registerOthers(event.id, 5);
 
     expect(await refusal(event.id)).toBe(venueCapacityReachedMessage(5));
+  });
+
+  // ── PTR-163 AC2 ───────────────────────────────────────────────────────────────────────────
+  test("notifies each waitlisted Attendee once when a withdrawal frees a place", async () => {
+    const event = await createEvent({ capacity: 10, bookedVenue: smallVenueId });
+    await registerOthers(event.id, 2);
+    await handleJoinWaitingList({ id: event.id }, attendee, database as never, insidePeriod);
+
+    await withdraw(event.id, placeTakers[0]);
+
+    const notices = await notificationsFor(event.id, "registration_place_available");
+    expect(notices.map(notice => notice.recipientId)).toEqual([attendee.id]);
+    expect(await registrationsFor(event.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ attendeeId: attendee.id, status: "waitlisted" }),
+      ])
+    );
+
+    // The event is not full any more, so a second withdrawal is not a new transition.
+    await withdraw(event.id, placeTakers[1]);
+    expect(await notificationsFor(event.id, "registration_place_available")).toHaveLength(1);
   });
 
   // ── AC6 ────────────────────────────────────────────────────────────────────────────────────

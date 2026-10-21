@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { db as Db } from "#/db";
-import { eventRequests, notifications } from "#/db/schema";
+import { eventRegistrations, eventRequests, notifications } from "#/db/schema";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
@@ -107,6 +107,10 @@ export async function sweepRegistrationWindows(
       const hasOpened = opensAt <= nowMinute && confirmedBeforeClose;
       const isClosed = closesAt <= nowMinute && confirmedBeforeClose;
 
+      // A closed window clears the waiting list. Waitlisted rows hold no place, and the
+      // Attendees cannot claim one after close. The clear below also covers an event that left
+      // `confirmed` or turned registration off before its window closed (PTR-163 AC3).
+
       // Boundary notices track the registration window only. `registrationAvailability` checks
       // released bookings at registration time.
       raiseBoundary(
@@ -134,6 +138,28 @@ export async function sweepRegistrationWindows(
     }
 
     await raiseNotifications(tx, notificationsToRaise);
+    // PTR-163 AC3: clear the waiting list of every event whose window closed, including one that
+    // left `confirmed` or turned registration off before its close. Bound the scan as the sweep is.
+    await tx
+      .update(eventRegistrations)
+      .set({ status: "withdrawn" })
+      .where(
+        and(
+          eq(eventRegistrations.status, "waitlisted"),
+          inArray(
+            eventRegistrations.eventId,
+            tx
+              .select({ id: eventRequests.id })
+              .from(eventRequests)
+              .where(
+                and(
+                  gte(eventRequests.registrationClosesAt, limitMinute),
+                  lte(eventRequests.registrationClosesAt, nowMinute)
+                )
+              )
+          )
+        )
+      );
     return notificationsToRaise.length;
   });
 }

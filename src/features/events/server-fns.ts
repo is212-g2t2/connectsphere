@@ -210,6 +210,37 @@ export const withdrawFromEvent = createServerFn({ method: "POST" })
   });
 
 /**
+ * PTR-163 AC1: An Attendee joins the waiting list of a full event with an open window. The
+ * handler re-reads the event, its period, and its places. The permission only states that the
+ * caller may register.
+ */
+export const joinWaitingList = createServerFn({ method: "POST" })
+  .middleware([requireEventRegister])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleJoinWaitingList }] = await loadRegisterServer();
+    const registration = await handleJoinWaitingList(data, context.user, db);
+
+    log.info("Event waiting list joined", { eventId: data.id, attendeeId: context.user.id });
+
+    return registration;
+  });
+
+/**
+ * PTR-163 AC3: An Attendee leaves the waiting list. Leaving frees no place, so the handler
+ * flips the caller's own waitlisted row without reading the event.
+ */
+export const leaveWaitingList = createServerFn({ method: "POST" })
+  .middleware([requireEventRegister])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleLeaveWaitingList }] = await loadRegisterServer();
+    await handleLeaveWaitingList(data, context.user, db);
+
+    log.info("Event waiting list left", { eventId: data.id, attendeeId: context.user.id });
+  });
+
+/**
  * PTR-111: Search Attendee accounts by part of the name or email. The Organiser or the assigned
  * Coordinator can add them as VIPs. Every other role gets 403. The handler re-reads the caller's
  * relationship to the event. Use POST, so searched names and emails stay out of the URL and the

@@ -5,6 +5,9 @@ import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { announcePlaceAvailable, readPlaceState } from "#/features/events/register.server";
+import { didFreePlace } from "#/features/events/registration";
+import type { PlaceCounts } from "#/features/events/registration";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   VENUE_BOOKING_NOT_APPROVED_MESSAGE,
@@ -22,6 +25,7 @@ import {
 import {
   assertSameVenue,
   keyShareEventForRequest,
+  lockEventForRequest,
   lockVenue,
   lockVenueForRequest,
   previewVenueForRequest,
@@ -242,9 +246,9 @@ export async function handleAmendVenueBooking(
   const endsAt = `${input.date} ${input.endTime}:00`;
 
   return database.transaction(async tx => {
-    // Lock the event before the venues. The notification insert takes this lock through its
-    // foreign key, and confirmation also locks the event before its requests.
-    await keyShareEventForRequest(tx, input.id);
+    // PTR-163: a move can free a place, and the places are compared before and after. Lock the
+    // event `FOR NO KEY UPDATE`, so a concurrent registration cannot commit between the reads.
+    await lockEventForRequest(tx, input.id);
     const currentVenueId = await previewVenueForRequest(tx, input.id);
 
     // The preview took no lock. Lock venues in sorted order so crossed amendments cannot
@@ -265,6 +269,30 @@ export async function handleAmendVenueBooking(
     const row = rows.at(0);
     assertActionableApprovedBooking(row, actor);
     assertSameVenue(currentVenueId, row.venueId);
+
+    // A move to another venue can change the total venue ceiling and open a place for the
+    // waiting list. Read the places before the move; the counts stay the same. A move within
+    // the venue changes no ceiling.
+    let waitlistBefore: PlaceCounts | null = null;
+    let waitlistCapacity: number | null = null;
+    let waitlistName = "";
+    if (input.venueId !== row.venueId) {
+      const terms = (
+        await tx
+          .select({
+            registrationCapacity: eventRequests.registrationCapacity,
+            eventName: eventRequests.eventName,
+          })
+          .from(eventRequests)
+          .where(eq(eventRequests.id, row.eventId))
+          .limit(1)
+      ).at(0);
+      if (terms && terms.registrationCapacity !== null) {
+        waitlistBefore = await readPlaceState(tx, row.eventId, terms.registrationCapacity);
+        waitlistCapacity = terms.registrationCapacity;
+        waitlistName = terms.eventName;
+      }
+    }
 
     // Remove the booking's own rows first, so the checks below cannot refuse it against itself.
     // A refusal rolls the deletion back.
@@ -303,6 +331,12 @@ export async function handleAmendVenueBooking(
         },
         "amended"
       );
+    }
+    if (waitlistBefore !== null && waitlistCapacity !== null) {
+      const after = await readPlaceState(tx, row.eventId, waitlistCapacity);
+      if (didFreePlace(waitlistBefore, after)) {
+        await announcePlaceAvailable(tx, row.eventId, waitlistName.trim() || "Untitled event");
+      }
     }
     return updated;
   });

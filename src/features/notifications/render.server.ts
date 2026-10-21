@@ -26,6 +26,7 @@ import { EventDecisionEmail } from "#/features/emails/components/event-decision-
 import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
 import {
   EventRegisteredEmail,
+  RegistrationPlaceAvailableEmail,
   RegistrationPlaceFreedEmail,
   RegistrationThresholdEmail,
   RegistrationWindowEmail,
@@ -356,6 +357,16 @@ export function renderNotificationEmail(
         element: createElement(RegistrationPlaceFreedEmail, {
           eventName,
           limit,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    }
+    case "registration_place_available": {
+      const { eventName } = notification.payload;
+      return {
+        subject,
+        element: createElement(RegistrationPlaceAvailableEmail, {
+          eventName,
           eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };

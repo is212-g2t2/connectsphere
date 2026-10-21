@@ -8,6 +8,7 @@ import { parseEventRequestId } from "#/features/event-requests/schema";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
 import {
+  announcePlaceAvailable,
   approvedBookings,
   countRegistrations,
   eventName,
@@ -15,7 +16,7 @@ import {
   stakeholderRecipients,
 } from "#/features/events/register.server";
 import type { EventRow } from "#/features/events/register.server";
-import { placeLimit, totalVenueCapacity } from "#/features/events/registration";
+import { didFreePlace, placeLimit, totalVenueCapacity } from "#/features/events/registration";
 import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
@@ -109,6 +110,24 @@ export async function handleWithdrawFromEvent(
       if (registeredBefore >= limitBefore && registeredAfter < limitAfter) {
         await announceFreedPlace(tx, event, limitAfter);
         placeFreedAtCapacity = true;
+      }
+      // A full-to-not-full transition also opens a place for the waiting list. Waitlisted rows
+      // hold no place, so the before/after counts already exclude them. The notice reserves
+      // nothing: places stay first come, first served.
+      const before = {
+        registeredCount: registeredBefore,
+        vipCount: vipsBefore,
+        venueCapacity: totalCapacity,
+        registrationCapacity: capacity,
+      };
+      if (
+        didFreePlace(before, {
+          ...before,
+          registeredCount: registeredAfter,
+          vipCount: vipsAfter,
+        })
+      ) {
+        await announcePlaceAvailable(tx, event.id, eventName(event));
       }
     }
 

@@ -10,6 +10,8 @@ status: accepted
 
 > **Amended 2026-10-19:** holds gain two states that occupy no venue time, `requested` and `declined` (PTR-150). The Rows, Writers and Buffers rows and the Refusal order section record this change. The ledger and its constraint do not change. A hold now enters through a request and a placement, and a requested hold can be withdrawn (PTR-151).
 
+> **Amended 2026-10-22:** a write that can change the place count now locks the event `FOR NO KEY UPDATE` (PTR-163). The lock order consequences record this change. The ledger and its constraint do not change.
+
 ## Context
 
 [ADR-5](./ADR-5-venue-booking-overlap.md) kept venue time free of overlaps with two exclusion constraints on the requested times: `venue_requests_no_overlap` for approved bookings and `venue_holds_no_overlap` for held holds. Three rules break that shape:
@@ -104,8 +106,8 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 ## Consequences
 
 - As in ADR-5, the Drizzle snapshot, `db:push` and `db:pull` do not know the constraint. Never run `db:push` against a database that has 0048. `btree_gist` from 0019 stays required.
-- The lock order of ADR-5 stays: the event key-share lock, then the venue advisory locks in ascending venue order, then the row locks. `handleConfirmEvent` writes no venue or occupancy row, so it takes no venue lock.
-- The block writers reverse that order, because they start from a venue. They take the venue lock first. Then they key-share the affected events in ascending id order.
+- The lock order of ADR-5 stays: the event lock, then the venue advisory locks in ascending venue order, then the row locks. A gate read takes `FOR KEY SHARE` on the event; a write that can change the place count takes `FOR NO KEY UPDATE`, so no concurrent registration commits between its before and after reads. `handleConfirmEvent` writes no venue or occupancy row, so it takes no venue lock.
+- The block record writer reverses that order, because it starts from a venue. It takes the venue lock first, then `FOR KEY SHARE` on the affected events in ascending id order. The block lift takes `FOR NO KEY UPDATE` on the events first, then the venue lock, because it compares the place count before and after. A key-share read does not wait for a `FOR NO KEY UPDATE` writer, so a record and a lift of the same block do not deadlock. A record that also reverts a covered event takes `FOR NO KEY UPDATE` on that event after the venue lock. A crossed lift can then deadlock, and the block handler refuses the change with the retry message.
 - The seed holds event rows `FOR UPDATE` and then takes a venue lock. If a seed and a block write run at the same time, they can deadlock.
 - In that deadlock, PostgreSQL stops one transaction (40P01). When PostgreSQL stops a block handler, the handler refuses the change and tells Venue Staff to try again. The project accepts this risk, because the seed is a development tool.
 - A lift fails when a new active row overlaps a restored row. Then the transaction rolls back, and the block stays live.

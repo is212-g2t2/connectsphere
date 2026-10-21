@@ -33,6 +33,7 @@ import type {
   EventPlaces,
   EventProjection,
   EventVenue,
+  RegisteredAttendee,
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
 import {
@@ -736,13 +737,32 @@ export async function handleListEventRegistrations(
       email: userTable.email,
       vip: eventRegistrations.vip,
       registeredAt: eventRegistrations.registeredAt,
+      status: eventRegistrations.status,
     })
     .from(eventRegistrations)
     .innerJoin(userTable, eq(eventRegistrations.attendeeId, userTable.id))
     .where(
-      and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))
+      and(
+        eq(eventRegistrations.eventId, eventId),
+        inArray(eventRegistrations.status, ["registered", "waitlisted"])
+      )
     )
     .orderBy(eventRegistrations.registeredAt, eventRegistrations.attendeeId);
 
-  return results.map(a => Object.assign({}, a, { registeredAt: a.registeredAt.toISOString() }));
+  // The query reads `registered` and `waitlisted` rows in join order. The `withdrawn`
+  // arm is unreachable; it narrows the status for the shared attendee type.
+  return results.flatMap((row): RegisteredAttendee[] =>
+    row.status === "withdrawn"
+      ? []
+      : [
+          {
+            attendeeId: row.attendeeId,
+            name: row.name,
+            email: row.email,
+            vip: row.vip,
+            registeredAt: row.registeredAt.toISOString(),
+            status: row.status,
+          },
+        ]
+  );
 }

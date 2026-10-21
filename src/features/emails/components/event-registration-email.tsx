@@ -170,3 +170,30 @@ export const RegistrationWindowEmail = ({
     </Layout>
   );
 };
+
+interface RegistrationPlaceAvailableEmailProps {
+  eventName: string;
+  eventUrl: string;
+}
+
+/**
+ * A place opened at a full event with a waiting list. Places stay first come, first served:
+ * the notice reserves nothing.
+ */
+export const RegistrationPlaceAvailableEmail = ({
+  eventName,
+  eventUrl,
+}: RegistrationPlaceAvailableEmailProps) => (
+  <Layout previewText={`A place is available for ${eventName}`}>
+    <Section>
+      <Text style={emailHeading}>A place is available</Text>
+      <Text style={emailText}>
+        A place has opened for <strong>{eventName}</strong>. Places go first come, first served, so
+        register soon.
+      </Text>
+      <Button href={eventUrl} style={emailButton}>
+        View the event
+      </Button>
+    </Section>
+  </Layout>
+);

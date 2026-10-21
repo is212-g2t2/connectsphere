@@ -60,6 +60,11 @@ export function EventCard({ event: projection }: { event: EventProjection }) {
                 Registered
               </Badge>
             )}
+            {access === "attendee" && event.registration?.status === "waitlisted" && (
+              <Badge variant="outline" aria-label="Your registration: Waiting list">
+                Waiting list
+              </Badge>
+            )}
           </div>
         </div>
 

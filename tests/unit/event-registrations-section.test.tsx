@@ -46,6 +46,7 @@ const attendees: RegisteredAttendee[] = [
     email: "ava.patel@example.com",
     vip: true,
     registeredAt: "2026-10-01T10:20:00.000Z",
+    status: "registered",
   },
   {
     attendeeId: "ben",
@@ -53,6 +54,7 @@ const attendees: RegisteredAttendee[] = [
     email: "ben.koh@example.com",
     vip: false,
     registeredAt: "2026-10-01T11:05:00.000Z",
+    status: "registered",
   },
 ];
 
