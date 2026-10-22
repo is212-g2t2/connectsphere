@@ -63,7 +63,7 @@ describe("DraftAttachments", () => {
     expect(await screen.findByText("plan.pdf")).toBeTruthy();
     expect(screen.getByText("2.0 KB")).toBeTruthy();
     expect(screen.getByText("1 of 10 attachments used.")).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Download" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Download plan.pdf" })).toBeTruthy();
     expect(listEventRequestAttachments).toHaveBeenCalledExactlyOnceWith({ data: { id: 41 } });
   });
 
@@ -166,7 +166,7 @@ describe("DraftAttachments", () => {
     });
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Download" }));
+    await user.click(await screen.findByRole("button", { name: "Download plan.pdf" }));
 
     await waitFor(() => expect(downloadEventRequestAttachment).toHaveBeenCalledOnce());
     expect(downloadEventRequestAttachment).toHaveBeenCalledWith({
@@ -184,7 +184,7 @@ describe("DraftAttachments", () => {
     removeEventRequestAttachment.mockResolvedValue({ id: 7 });
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    await user.click(await screen.findByRole("button", { name: "Remove plan.pdf" }));
 
     await waitFor(() => expect(removeEventRequestAttachment).toHaveBeenCalledOnce());
     expect(removeEventRequestAttachment).toHaveBeenCalledWith({
@@ -200,7 +200,7 @@ describe("DraftAttachments", () => {
     );
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    await user.click(await screen.findByRole("button", { name: "Remove plan.pdf" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "This attachment is no longer available."

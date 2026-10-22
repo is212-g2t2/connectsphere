@@ -337,7 +337,7 @@ describe("Draft attachment storage", () => {
         database as never,
         storage
       )
-    ).resolves.toEqual({ id: row.id });
+    ).resolves.toBeUndefined();
 
     expect(await attachmentRows(draft.id)).toEqual([]);
     expect(storage.keys()).toEqual([]);
@@ -427,7 +427,7 @@ describe("Draft attachment storage", () => {
         database as never,
         failingStorage
       )
-    ).resolves.toEqual({ id: row.id });
+    ).resolves.toBeUndefined();
 
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
