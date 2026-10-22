@@ -233,20 +233,13 @@ export const removeEventRequestAttachment = createServerFn({ method: "POST" })
     const [{ db }, { getAttachmentStorage, handleRemoveEventRequestAttachment }] =
       await Promise.all([import("#/db"), import("#/features/event-requests/attachments.server")]);
 
-    const removed = await handleRemoveEventRequestAttachment(
-      data,
-      context.user,
-      db,
-      getAttachmentStorage()
-    );
+    await handleRemoveEventRequestAttachment(data, context.user, db, getAttachmentStorage());
 
     log.info("Draft attachment removed", {
       requestId: data.id,
-      attachmentId: removed.id,
+      attachmentId: data.attachmentId,
       organiserId: context.user.id,
     });
-
-    return removed;
   });
 
 export const replyToClarification = createServerFn({ method: "POST" })

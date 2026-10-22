@@ -41,6 +41,35 @@ services:
       timeout: 5s
       retries: 10
 
+  storage:
+    image: chrislusf/seaweedfs:4.48
+    container_name: storage
+    ports:
+      - 8333:8333
+    volumes:
+      - ./data/seaweedfs:/data
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    command:
+      - server
+      - -dir=/data
+      - -master.volumeSizeLimitMB=256
+      - -volume.max=0
+      - -s3
+      - -filer
+      - -s3.port=8333
+      - -s3.config=/etc/seaweedfs/s3.json
+      - -s3.autoCreateBucket=true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'test "$$(curl -s -o /dev/null -w ''%{http_code}'' http://localhost:8333/)" = 403',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   connectsphere:
     build:
       context: .

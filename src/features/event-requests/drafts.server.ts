@@ -309,8 +309,10 @@ export async function handleGetEventRequestDraft(
 /**
  * Criterion 3: Delete the Organiser's draft. Use `ownDraft` so a submitted request cannot be
  * deleted. This matches `handleSaveEventRequestDraft`'s distinction between another user's row
- * and an owned row that is no longer a draft. The foreign key removes the attachment rows with
- * the draft; their objects are deleted after the deletion commits. A failed object delete is
+ * and an owned row that is no longer a draft. The event row is locked first, so a concurrent
+ * upload serialises with this delete: either its attachment is in the key read, or its own
+ * transaction finds no draft and removes its object. The foreign key removes the attachment rows
+ * with the draft; their objects are deleted after the deletion commits. A failed object delete is
  * logged and never fails the delete.
  */
 export async function handleDeleteEventRequestDraft(
@@ -321,26 +323,32 @@ export async function handleDeleteEventRequestDraft(
 ): Promise<EventRequest> {
   const { id } = parseEventRequestId(data);
 
-  // Read the object keys before the delete commits; the cascade leaves no rows to read after.
-  const attachments = await database
-    .select({ objectKey: eventRequestAttachments.objectKey })
-    .from(eventRequestAttachments)
-    .where(eq(eventRequestAttachments.eventRequestId, id));
+  const { deleted, objectKeys } = await database.transaction(async tx => {
+    const ownRows = await tx
+      .select({ id: eventRequests.id })
+      .from(eventRequests)
+      .where(and(eq(eventRequests.id, id), eq(eventRequests.organiserId, user.id)))
+      .for("update");
 
-  const deleted = await database.delete(eventRequests).where(ownDraft(id, user.id)).returning();
+    if (ownRows.length === 0) throw new AuthorizationError("Forbidden");
 
-  if (deleted.length === 0) {
-    if (await ownRowExists(id, user.id, database)) {
-      throw new ConflictError(EVENT_REQUEST_DELETE_REFUSAL);
-    }
+    // Read the keys under the lock; the cascade leaves no rows to read after the delete.
+    const attachments = await tx
+      .select({ objectKey: eventRequestAttachments.objectKey })
+      .from(eventRequestAttachments)
+      .where(eq(eventRequestAttachments.eventRequestId, id));
 
-    throw new AuthorizationError("Forbidden");
-  }
+    const removed = await tx.delete(eventRequests).where(ownDraft(id, user.id)).returning();
 
-  await removeAttachmentObjects(
-    storage,
-    attachments.map(attachment => attachment.objectKey)
-  );
+    if (removed.length === 0) throw new ConflictError(EVENT_REQUEST_DELETE_REFUSAL);
 
-  return deleted[0];
+    return {
+      deleted: removed[0],
+      objectKeys: attachments.map(attachment => attachment.objectKey),
+    };
+  });
+
+  await removeAttachmentObjects(storage, objectKeys);
+
+  return deleted;
 }

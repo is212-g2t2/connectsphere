@@ -6,6 +6,7 @@ import {
   ATTACHMENT_FILE_REQUIRED_MESSAGE,
   ATTACHMENT_ID_MESSAGE,
   ATTACHMENT_LIMIT_MESSAGE,
+  ATTACHMENT_MAX_BODY_BYTES,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_COUNT,
   ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE,
@@ -13,6 +14,7 @@ import {
   ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE,
   attachmentExtensionFor,
   detectAttachmentContentType,
+  exceedsRequestBodyLimit,
   parseAttachmentDownload,
   parseAttachmentUpload,
   sanitizeAttachmentFilename,
@@ -47,6 +49,14 @@ describe("Attachment limits and messages", () => {
     expect(ATTACHMENT_MAX_COUNT).toBe(10);
   });
 
+  it("refuses a body over the request cap or without a declared length", () => {
+    expect(exceedsRequestBodyLimit(null, false)).toBe(false);
+    expect(exceedsRequestBodyLimit(String(ATTACHMENT_MAX_BODY_BYTES), true)).toBe(false);
+    expect(exceedsRequestBodyLimit(String(ATTACHMENT_MAX_BODY_BYTES + 1), true)).toBe(true);
+    expect(exceedsRequestBodyLimit(null, true)).toBe(true);
+    expect(exceedsRequestBodyLimit("not-a-number", true)).toBe(true);
+  });
+
   it("names the reason in every refusal", () => {
     for (const message of [
       ATTACHMENT_TOO_LARGE_MESSAGE,
@@ -58,9 +68,9 @@ describe("Attachment limits and messages", () => {
     }
   });
 
-  it("accepts only the four supported extensions in the file input", () => {
+  it("accepts only the four supported content types in the file input", () => {
     expect(ATTACHMENT_ACCEPT).toBe(".pdf,.png,.jpg,.jpeg,.docx");
-    expect(Object.values(ATTACHMENT_CONTENT_TYPES)).toHaveLength(4);
+    expect(new Set(Object.values(ATTACHMENT_CONTENT_TYPES)).size).toBe(4);
   });
 });
 
@@ -156,6 +166,15 @@ describe("parseAttachmentUpload", () => {
     expect(() => parseAttachmentUpload(uploadForm("41"))).toThrow(ATTACHMENT_FILE_REQUIRED_MESSAGE);
     expect(() => parseAttachmentUpload(uploadForm("41", new File([], "empty.pdf")))).toThrow(
       ATTACHMENT_FILE_REQUIRED_MESSAGE
+    );
+  });
+
+  it("refuses a file over the limit before its bytes are read", () => {
+    const oversized = new File([new Uint8Array(ATTACHMENT_MAX_BYTES + 1)], "big.pdf", {
+      type: "application/pdf",
+    });
+    expect(() => parseAttachmentUpload(uploadForm("41", oversized))).toThrow(
+      ATTACHMENT_TOO_LARGE_MESSAGE
     );
   });
 

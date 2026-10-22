@@ -40,6 +40,17 @@ const listed = {
   storageAvailable: true,
 };
 
+const atLimit = {
+  attachments: Array.from({ length: 10 }, (_, index) => ({
+    id: index + 1,
+    originalFilename: `plan-${index}.pdf`,
+    contentType: "application/pdf",
+    sizeBytes: 2048,
+    createdAt: new Date("2026-09-01T00:00:00Z"),
+  })),
+  storageAvailable: true,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   listEventRequestAttachments.mockResolvedValue(listed);
@@ -52,8 +63,38 @@ describe("DraftAttachments", () => {
     expect(await screen.findByText("plan.pdf")).toBeTruthy();
     expect(screen.getByText("2.0 KB")).toBeTruthy();
     expect(screen.getByText("1 of 10 attachments used.")).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Download" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Download plan.pdf" })).toBeTruthy();
     expect(listEventRequestAttachments).toHaveBeenCalledExactlyOnceWith({ data: { id: 41 } });
+  });
+
+  it("shows the limit before the first upload, and hides the form at the limit", async () => {
+    listEventRequestAttachments.mockResolvedValue({ attachments: [], storageAvailable: true });
+    const { unmount } = render(<DraftAttachments draftId={41} />);
+
+    expect(await screen.findByText("0 of 10 attachments used.")).toBeTruthy();
+    expect(screen.getByLabelText("Choose a file to attach")).toBeTruthy();
+    unmount();
+
+    listEventRequestAttachments.mockResolvedValue(atLimit);
+    render(<DraftAttachments draftId={41} />);
+
+    expect(await screen.findByText("10 of 10 attachments used.")).toBeTruthy();
+    expect(screen.queryByLabelText("Choose a file to attach")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Attach file" })).toBeNull();
+  });
+
+  it("offers a retry when the list fails", async () => {
+    const user = userEvent.setup();
+    listEventRequestAttachments
+      .mockRejectedValueOnce(new Error("The list could not load."))
+      .mockResolvedValue(listed);
+    render(<DraftAttachments draftId={41} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("The list could not load.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("plan.pdf")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("uploads the chosen file with the draft id and refreshes the list", async () => {
@@ -103,12 +144,21 @@ describe("DraftAttachments", () => {
     expect(await screen.findByText("No supporting documents yet.")).toBeTruthy();
   });
 
-  it("downloads the file the server returns", async () => {
+  it("downloads the bytes the server returns under the stored name", async () => {
     const user = userEvent.setup();
-    const createObjectURL = vi.fn<() => string>(() => "blob:mock");
+    let blob: Blob | undefined;
+    const createObjectURL = vi.fn<(value: Blob | MediaSource) => string>(value => {
+      blob = value as Blob;
+      return "blob:mock";
+    });
     window.URL.createObjectURL = createObjectURL;
     window.URL.revokeObjectURL = vi.fn<() => void>();
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    let downloadName = "";
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      downloadName = this.download;
+    });
     downloadEventRequestAttachment.mockResolvedValue({
       filename: "plan.pdf",
       contentType: "application/pdf",
@@ -116,14 +166,16 @@ describe("DraftAttachments", () => {
     });
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Download" }));
+    await user.click(await screen.findByRole("button", { name: "Download plan.pdf" }));
 
     await waitFor(() => expect(downloadEventRequestAttachment).toHaveBeenCalledOnce());
     expect(downloadEventRequestAttachment).toHaveBeenCalledWith({
       data: { id: 41, attachmentId: 7 },
     });
     expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(await blob?.text()).toBe("%PDF-1.4");
     expect(click).toHaveBeenCalledOnce();
+    expect(downloadName).toBe("plan.pdf");
     click.mockRestore();
   });
 
@@ -132,7 +184,7 @@ describe("DraftAttachments", () => {
     removeEventRequestAttachment.mockResolvedValue({ id: 7 });
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    await user.click(await screen.findByRole("button", { name: "Remove plan.pdf" }));
 
     await waitFor(() => expect(removeEventRequestAttachment).toHaveBeenCalledOnce());
     expect(removeEventRequestAttachment).toHaveBeenCalledWith({
@@ -148,7 +200,7 @@ describe("DraftAttachments", () => {
     );
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    await user.click(await screen.findByRole("button", { name: "Remove plan.pdf" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "This attachment is no longer available."

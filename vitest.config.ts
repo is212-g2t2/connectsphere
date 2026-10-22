@@ -7,7 +7,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "#": path.resolve(import.meta.dirname, "./src"),
-      bun: path.resolve(import.meta.dirname, "./tests/shims/bun.ts"),
     },
   },
   test: {
@@ -61,6 +60,13 @@ export default defineConfig({
           globals: true,
           setupFiles: [path.resolve(import.meta.dirname, "./tests/setup.ts")],
         },
+        // Unit tests never touch the network. Point Bun's built-in modules at the
+        // throwing shim, so a test that reaches the real bucket fails instead of passing.
+        resolve: {
+          alias: {
+            bun: path.resolve(import.meta.dirname, "./tests/shims/bun.ts"),
+          },
+        },
       },
       {
         test: {
@@ -84,6 +90,14 @@ export default defineConfig({
                 /@tanstack\/start-storage-context/,
               ],
             },
+          },
+        },
+        // Node-based Vitest cannot load Bun's built-in modules. Integration tests run
+        // the real object store through a fetch-based S3 client with the same surface,
+        // so `getAttachmentStorage()` talks to the testcontainer over real S3.
+        resolve: {
+          alias: {
+            bun: path.resolve(import.meta.dirname, "./tests/shims/bun-integration.ts"),
           },
         },
       },
