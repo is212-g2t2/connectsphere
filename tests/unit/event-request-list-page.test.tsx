@@ -134,6 +134,16 @@ const submitted: EventRequestDetail = {
   registrationClosesAt: "2030-11-20T17:00",
 };
 
+/** A submitted request whose event end has passed, so the server accepts a reuse. */
+const pastSubmitted: EventRequestDetail = {
+  ...submitted,
+  id: 44,
+  eventName: "Last year's dinner",
+  proposedDates: [{ start: "2020-12-01T18:00", end: "2020-12-01T22:00" }],
+  registrationOpensAt: "2020-11-01T09:00",
+  registrationClosesAt: "2020-11-20T17:00",
+};
+
 describe("EventRequestListPage (PTR-14)", () => {
   it("lists every request with its name, proposed date and status (AC1, AC2)", () => {
     render(<EventRequestListPage requests={[submitted, draft]} />);
@@ -249,22 +259,25 @@ describe("EventRequestListPage reuse action (PTR-154)", () => {
     navigate.mockResolvedValue(undefined);
   });
 
-  it("offers Reuse on a submitted request but not on a draft (AC1)", () => {
-    render(<EventRequestListPage requests={[submitted, draft]} />);
+  it("offers Reuse only when the server would accept it (AC1)", () => {
+    render(<EventRequestListPage requests={[pastSubmitted, submitted, draft]} />);
 
     const rows = screen.getAllByRole("row").slice(1);
-    expect(within(rows[0]).getByRole("button", { name: "Reuse" })).toBeTruthy();
-    expect(within(rows[1]).queryByRole("button", { name: "Reuse" })).toBeNull();
+    expect(
+      within(rows[0]).getByRole("button", { name: "Reuse Last year's dinner as a new draft" })
+    ).toBeTruthy();
+    expect(within(rows[1]).queryByRole("button", { name: /as a new draft$/ })).toBeNull();
+    expect(within(rows[2]).queryByRole("button", { name: /as a new draft$/ })).toBeNull();
   });
 
   it("starts a new draft and opens it for editing (AC1, AC2)", async () => {
     reuseEventRequest.mockResolvedValue({ id: 77 });
-    render(<EventRequestListPage requests={[submitted]} />);
+    render(<EventRequestListPage requests={[pastSubmitted]} />);
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "Reuse" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /as a new draft$/ }));
 
     await waitFor(() =>
-      expect(reuseEventRequest).toHaveBeenCalledExactlyOnceWith({ data: { id: 42 } })
+      expect(reuseEventRequest).toHaveBeenCalledExactlyOnceWith({ data: { id: 44 } })
     );
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledExactlyOnceWith({
@@ -274,11 +287,35 @@ describe("EventRequestListPage reuse action (PTR-154)", () => {
     );
   });
 
-  it("shows the refusal when the request cannot start a draft", async () => {
-    reuseEventRequest.mockRejectedValue(new Error("Only a completed request"));
-    render(<EventRequestListPage requests={[submitted]} />);
+  it("marks only the clicked row while the reuse runs", async () => {
+    let resolveReuse!: (value: unknown) => void;
+    reuseEventRequest.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveReuse = resolve;
+        })
+    );
+    const other = { ...pastSubmitted, id: 45, eventName: "Other past event" };
+    render(<EventRequestListPage requests={[pastSubmitted, other]} />);
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "Reuse" }));
+    await userEvent.setup().click(screen.getAllByRole("button", { name: /as a new draft$/ })[0]);
+
+    expect(await screen.findByText("Reusing…")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Reuse Other past event as a new draft" })
+        .getAttribute("disabled")
+    ).not.toBeNull();
+
+    resolveReuse({ id: 77 });
+    await waitFor(() => expect(navigate).toHaveBeenCalled());
+  });
+
+  it("shows the refusal when a race makes the server reject the reuse", async () => {
+    reuseEventRequest.mockRejectedValue(new Error("Only a completed request"));
+    render(<EventRequestListPage requests={[pastSubmitted]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /as a new draft$/ }));
 
     await waitFor(() => expect(screen.getByText("Only a completed request")).toBeTruthy());
     expect(navigate).not.toHaveBeenCalled();

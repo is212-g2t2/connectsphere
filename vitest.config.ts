@@ -58,8 +58,6 @@ export default defineConfig({
           // with a `// @vitest-environment jsdom` comment at the top of the file.
           environment: "node",
           globals: true,
-          // Limit CPU and memory contention while component tests transform and render.
-          maxWorkers: 2,
           setupFiles: [path.resolve(import.meta.dirname, "./tests/setup.ts")],
         },
         // Unit tests never touch the network. Point Bun's built-in modules at the

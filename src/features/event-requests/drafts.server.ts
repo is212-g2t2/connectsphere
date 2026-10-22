@@ -25,14 +25,12 @@ import {
   EVENT_REQUEST_DELETE_REFUSAL,
   EVENT_REQUEST_REUSE_REFUSAL,
   SUBMITTED_EDIT_REFUSAL,
-  canReuseEventRequest,
   missingFieldsMessage,
   missingRequiredFields,
   parseDraftInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
-import { eventTiming } from "#/features/events/access";
-import { singaporeLocalEndHasPassed } from "#/features/events/completion";
+import { isReusableEventRequest } from "#/features/event-requests/reuse";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
@@ -366,8 +364,7 @@ export async function handleDeleteEventRequestDraft(
 export async function handleReuseEventRequest(
   data: unknown,
   user: SessionUser,
-  database: Database,
-  now = new Date()
+  database: Database
 ): Promise<EventRequest> {
   const { id } = parseEventRequestId(data);
 
@@ -375,11 +372,7 @@ export async function handleReuseEventRequest(
   const source = rows.at(0);
   if (!source) throw new AuthorizationError("Forbidden");
 
-  // Read the event end from the proposed dates, as the completion gate does. A missing end
-  // never counts as passed, so only a completed request without one qualifies.
-  const { endDate, endTime } = eventTiming(source.proposedDates);
-  const eventEnd = endDate && endTime ? `${endDate}T${endTime}` : null;
-  if (!canReuseEventRequest(source.status, singaporeLocalEndHasPassed(eventEnd, now) === true)) {
+  if (!isReusableEventRequest(source)) {
     throw new ConflictError(EVENT_REQUEST_REUSE_REFUSAL);
   }
 
@@ -397,7 +390,7 @@ export async function handleReuseEventRequest(
       venueRequirements: source.venueRequirements,
       roomLayoutPreference: source.roomLayoutPreference,
       accessibilityRequirements: source.accessibilityRequirements,
-      equipmentRequirements: structuredClone(source.equipmentRequirements),
+      equipmentRequirements: source.equipmentRequirements,
       specialArrangements: "",
       registrationEnabled: false,
       registrationCapacity: null,

@@ -13,6 +13,7 @@ import {
 } from "#/components/ui/table";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
+import { isReusableEventRequest } from "#/features/event-requests/reuse";
 import { deleteEventRequestDraft, reuseEventRequest } from "#/features/event-requests/server-fns";
 import type {
   EventRequestDeleted,
@@ -39,13 +40,14 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
   const navigate = useNavigate();
 
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [pendingReuseId, setPendingReuseId] = useState<number | null>(null);
 
   const [deleteState, deleteDraft, deleting] = useMutation<number, EventRequestDeleted>(
     id => deleteEventRequestDraft({ data: { id } }),
     DELETE_FAILED
   );
 
-  const [reuseState, reuseRequest, reusing] = useMutation<number, EventRequestDraft>(
+  const [reuseState, reuseRequest] = useMutation<number, EventRequestDraft>(
     id => reuseEventRequest({ data: { id } }),
     REUSE_FAILED
   );
@@ -61,13 +63,19 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
 
   /** PTR-154: copy a past request into a new draft and open it for editing. */
   async function handleReuse(id: number) {
-    const result = await reuseRequest(id);
+    if (pendingReuseId !== null) return;
+    setPendingReuseId(id);
+    try {
+      const result = await reuseRequest(id);
 
-    if (result.status === "success") {
-      await navigate({
-        to: "/event-requests/reopenDraft/$id",
-        params: { id: String(result.data.id) },
-      });
+      if (result.status === "success") {
+        await navigate({
+          to: "/event-requests/reopenDraft/$id",
+          params: { id: String(result.data.id) },
+        });
+      }
+    } finally {
+      setPendingReuseId(null);
     }
   }
   return (
@@ -86,10 +94,14 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
         }
       />
       {deleteState.status === "error" && (
-        <p className="mt-4 body-sm text-destructive">{deleteState.error}</p>
+        <p role="alert" className="mt-4 body-sm text-destructive">
+          {deleteState.error}
+        </p>
       )}
       {reuseState.status === "error" && (
-        <p className="mt-4 body-sm text-destructive">{reuseState.error}</p>
+        <p role="alert" className="mt-4 body-sm text-destructive">
+          {reuseState.error}
+        </p>
       )}
       {requests.length === 0 ? (
         <p className="mt-10 body-sm text-muted-foreground">
@@ -183,15 +195,16 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                           </Button>
                         </span>
                       ))}
-                    {request.status !== "draft" && (
+                    {isReusableEventRequest(request) && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={reusing}
+                        aria-label={`Reuse ${request.eventName.trim() || UNTITLED_REQUEST} as a new draft`}
+                        disabled={pendingReuseId !== null}
                         onClick={() => void handleReuse(request.id)}
                       >
-                        {reusing ? "Reusing…" : "Reuse"}
+                        {pendingReuseId === request.id ? "Reusing…" : "Reuse as new draft"}
                       </Button>
                     )}
                   </TableCell>

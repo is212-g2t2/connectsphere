@@ -2484,10 +2484,12 @@ describe("Starting a new draft from a past request (PTR-154)", () => {
       proposedDates: [],
       expectedAttendance: source.expectedAttendance,
       description: source.description,
+      eventType: "",
       venueRequirements: source.venueRequirements,
       roomLayoutPreference: source.roomLayoutPreference,
       accessibilityRequirements: source.accessibilityRequirements,
       equipmentRequirements: source.equipmentRequirements,
+      specialArrangements: "",
       registrationEnabled: false,
       registrationCapacity: null,
       registrationOpensAt: null,
@@ -2503,8 +2505,6 @@ describe("Starting a new draft from a past request (PTR-154)", () => {
     expect(reused).toMatchObject({
       id: expect.any(Number),
       status: "draft",
-      eventName: source.eventName,
-      equipmentRequirements: source.equipmentRequirements,
     });
     expect(reused.id).not.toBe(source.id);
   });

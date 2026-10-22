@@ -468,13 +468,6 @@ export function isActiveEventRequest(status: EventRequestStatus): boolean {
 export const EVENT_REQUEST_REUSE_REFUSAL =
   "Only a completed request, or one whose event date has passed, can start a new draft.";
 
-export function canReuseEventRequest(
-  status: EventRequestStatus,
-  eventEndHasPassed: boolean
-): boolean {
-  return status !== "draft" && (status === "completed" || eventEndHasPassed);
-}
-
 export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
 
 // ── Processing a change request (PTR-52) ────────────────────────────────────
