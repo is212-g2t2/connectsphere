@@ -162,6 +162,36 @@ describe("Organiser clarification replies", () => {
       body: input.body,
     });
   });
+  it("replies to a request created before the listed-detail rule", async () => {
+    const { request, input } = await question(["expectedAttendance"]);
+    // A row from before PTR-155: the four listed details are blank, and the request is live.
+    await database
+      .update(schema.eventRequests)
+      .set({
+        description: "",
+        venueRequirements: "",
+        roomLayoutPreference: "",
+        accessibilityRequirements: "",
+      })
+      .where(eq(schema.eventRequests.id, request.id));
+
+    const clarification = await handleReplyToClarification(
+      { ...input, amendments: { expectedAttendance: 120 } },
+      organiser,
+      database as never
+    );
+
+    expect(clarification.replyBody).toBe(input.body);
+    expect(
+      await handleGetEventRequest({ id: request.id }, organiser, database as never)
+    ).toMatchObject({
+      status: "under_review",
+      expectedAttendance: 120,
+      description: "",
+      clarifications: [expect.objectContaining({ replyBody: input.body })],
+    });
+  });
+
   it("notifies the current Coordinator after reassignment and keeps the original question author", async () => {
     const { request, input } = await question();
     await database

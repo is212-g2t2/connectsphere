@@ -465,6 +465,13 @@ describe("EventRequestForm", () => {
     expect(screen.queryByRole("button", { name: "Submit request" })).toBeNull();
   });
 
+  it("names the additional section and explains None for accessibility", () => {
+    render(<EventRequestForm onSave={makeOnSave()} />);
+
+    expect(screen.getByRole("region", { name: "Additional requirements" })).toBeTruthy();
+    expect(screen.getByText("Enter None if there are no accessibility needs.")).toBeTruthy();
+  });
+
   it("routes Submit request to the submission handler and leaves the save handler alone", async () => {
     const user = userEvent.setup();
     const onSave = makeOnSave();

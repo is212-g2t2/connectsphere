@@ -659,7 +659,7 @@ describe("missingRequiredFields", () => {
     description: "Bring your own lunch",
     venueRequirements: "Ground floor, near MRT",
     roomLayoutPreference: "U-shape",
-    accessibilityRequirements: "None",
+    accessibilityRequirements: "Step-free access",
     equipmentRequirements: [],
   };
 
@@ -678,26 +678,44 @@ describe("missingRequiredFields", () => {
     ]);
   });
 
-  it("reports each newly required detail that is blank", () => {
-    expect(missingRequiredFields({ ...completeDraft, description: "" })).toEqual(["Description"]);
-    expect(missingRequiredFields({ ...completeDraft, description: "   " })).toEqual([
+  it("reports each newly required detail that is blank at submission", () => {
+    const listed = { requireListedDetails: true };
+    expect(missingRequiredFields({ ...completeDraft, description: "" }, listed)).toEqual([
       "Description",
     ]);
-    expect(missingRequiredFields({ ...completeDraft, venueRequirements: "" })).toEqual([
+    expect(missingRequiredFields({ ...completeDraft, description: "   " }, listed)).toEqual([
+      "Description",
+    ]);
+    expect(missingRequiredFields({ ...completeDraft, venueRequirements: "" }, listed)).toEqual([
       "Venue requirements",
     ]);
-    expect(missingRequiredFields({ ...completeDraft, roomLayoutPreference: "  " })).toEqual([
-      "Room-layout preference",
-    ]);
-    expect(missingRequiredFields({ ...completeDraft, accessibilityRequirements: "" })).toEqual([
-      "Accessibility requirements",
-    ]);
+    expect(missingRequiredFields({ ...completeDraft, roomLayoutPreference: "  " }, listed)).toEqual(
+      ["Room-layout preference"]
+    );
+    expect(
+      missingRequiredFields({ ...completeDraft, accessibilityRequirements: "" }, listed)
+    ).toEqual(["Accessibility requirements"]);
+  });
+
+  it("ignores the new details on a reply to a request created before the rule", () => {
+    expect(
+      missingRequiredFields({
+        ...completeDraft,
+        description: "",
+        venueRequirements: "",
+        roomLayoutPreference: "",
+        accessibilityRequirements: "",
+      })
+    ).toEqual([]);
   });
 
   it("accepts None as the accessibility needs", () => {
-    expect(missingRequiredFields({ ...completeDraft, accessibilityRequirements: "None" })).toEqual(
-      []
-    );
+    expect(
+      missingRequiredFields(
+        { ...completeDraft, accessibilityRequirements: "None" },
+        { requireListedDetails: true }
+      )
+    ).toEqual([]);
   });
 
   it("reports an absent proposed date list", () => {
@@ -736,17 +754,20 @@ describe("missingRequiredFields", () => {
 
   it("reports every missing mandatory field in form order", () => {
     expect(
-      missingRequiredFields({
-        eventName: " ",
-        purpose: "",
-        proposedDates: [],
-        expectedAttendance: null,
-        description: "",
-        venueRequirements: "  ",
-        roomLayoutPreference: "",
-        accessibilityRequirements: "",
-        equipmentRequirements: [{ type: "Projector" }],
-      })
+      missingRequiredFields(
+        {
+          eventName: " ",
+          purpose: "",
+          proposedDates: [],
+          expectedAttendance: null,
+          description: "",
+          venueRequirements: "  ",
+          roomLayoutPreference: "",
+          accessibilityRequirements: "",
+          equipmentRequirements: [{ type: "Projector" }],
+        },
+        { requireListedDetails: true }
+      )
     ).toEqual([
       "Event name",
       "Purpose",

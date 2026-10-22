@@ -19,6 +19,7 @@ import {
   CLARIFICATION_TEXT_MAX,
   ClarificationReplyBodyInput,
   EventRequestDraftFormInput,
+  LISTED_DETAIL_FIELDS,
   missingRequiredFields,
 } from "#/features/event-requests/schema";
 import type {
@@ -57,31 +58,20 @@ export interface EventRequestFormSubmitContext {
   replyBody: string;
 }
 
-/** PTR-155: these details are required at submission, but a draft may leave them blank. */
-const REQUIRED_TEXT_FIELDS = [
-  ["description", "Description"],
-  ["venueRequirements", "Venue requirements"],
-  ["roomLayoutPreference", "Room-layout preference"],
-  ["accessibilityRequirements", "Accessibility requirements"],
-] as const;
+/**
+ * PTR-155: these details are required at submission, but a draft may leave them blank.
+ * Required fields render first, on the create page and in reply mode.
+ */
+const TEXT_FIELDS = [
+  { name: "description", label: "Description", required: true },
+  { name: "venueRequirements", label: "Venue requirements", required: true },
+  { name: "roomLayoutPreference", label: "Room-layout preference", required: true },
+  { name: "accessibilityRequirements", label: "Accessibility requirements", required: true },
+  { name: "eventType", label: "Type of event", required: false },
+  { name: "specialArrangements", label: "Special arrangements", required: false },
+] as const satisfies readonly { name: ClarificationField; label: string; required: boolean }[];
 
-const OPTIONAL_TEXT_FIELDS = [
-  ["eventType", "Type of event"],
-  ["specialArrangements", "Special arrangements"],
-] as const;
-
-type TextFieldName =
-  | (typeof REQUIRED_TEXT_FIELDS)[number][0]
-  | (typeof OPTIONAL_TEXT_FIELDS)[number][0];
-
-const TEXT_FIELD_LABELS: Record<TextFieldName, string> = {
-  description: "Description",
-  venueRequirements: "Venue requirements",
-  roomLayoutPreference: "Room-layout preference",
-  accessibilityRequirements: "Accessibility requirements",
-  eventType: "Type of event",
-  specialArrangements: "Special arrangements",
-};
+type TextField = (typeof TEXT_FIELDS)[number];
 
 /** Registration rows vary by name, label, and input type, like the equipment rows. */
 const REGISTRATION_FIELDS = [
@@ -186,10 +176,6 @@ const MISSING_FIELD_KEYS: Partial<Record<string, string>> = {
   Purpose: "purpose",
   "Expected attendance": "expectedAttendance",
   "Proposed dates and times": "proposedDates",
-  Description: "description",
-  "Venue requirements": "venueRequirements",
-  "Room-layout preference": "roomLayoutPreference",
-  "Accessibility requirements": "accessibilityRequirements",
   "Equipment requirements": "equipmentRequirements",
 };
 
@@ -220,7 +206,8 @@ function missingFieldPath(key: string, value: EventRequestFormValues): string {
 function missingFieldErrors(
   value: EventRequestFormValues,
   parsed: EventRequestDraftValues,
-  editable: (field: string) => boolean
+  editable: (field: string) => boolean,
+  replyMode: boolean
 ): Record<string, { message: string }[]> {
   const fields: Record<string, { message: string }[]> = {};
 
@@ -228,6 +215,15 @@ function missingFieldErrors(
     const key = MISSING_FIELD_KEYS[label];
     if (key === undefined || !editable(key)) continue;
     fields[missingFieldPath(key, value)] = [{ message: `${label} is required` }];
+  }
+
+  // A reply must not clear a listed detail that the Coordinator permitted. A field the
+  // Coordinator did not ask for may stay blank on a row created before PTR-155.
+  if (replyMode) {
+    for (const [key, label] of LISTED_DETAIL_FIELDS) {
+      if (!editable(key) || parsed[key].trim() !== "") continue;
+      fields[missingFieldPath(key, value)] = [{ message: `${label} is required` }];
+    }
   }
 
   return fields;
@@ -246,10 +242,12 @@ function draftValidator({
   value,
   editable,
   requireComplete,
+  replyMode,
 }: {
   value: EventRequestFormValues;
   editable: (field: string) => boolean;
   requireComplete: boolean;
+  replyMode: boolean;
 }) {
   const result = standardSchemaValidators.validate<"form">(
     { value, validationSource: "form" },
@@ -260,7 +258,7 @@ function draftValidator({
   const parsed = EventRequestDraftFormInput.safeParse(value);
   if (!parsed.success) return result;
 
-  const fields = missingFieldErrors(value, parsed.data, editable);
+  const fields = missingFieldErrors(value, parsed.data, editable, replyMode);
   if (Object.keys(fields).length === 0) return result;
 
   return { form: result?.form ?? {}, fields: { ...result?.fields, ...fields } };
@@ -321,7 +319,7 @@ export function EventRequestForm({
     defaultValues,
     validators: {
       onSubmit: ({ value }: { value: EventRequestFormValues }) =>
-        draftValidator({ value, editable, requireComplete: mustBeComplete }),
+        draftValidator({ value, editable, requireComplete: mustBeComplete, replyMode }),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -522,18 +520,18 @@ export function EventRequestForm({
     </form.Field>
   );
 
-  const renderTextField = (name: TextFieldName, required: boolean) => (
-    <form.Field name={name}>
+  const renderTextField = (textField: TextField) => (
+    <form.Field name={textField.name}>
       {field => (
         <Field data-invalid={field.state.meta.errors.length > 0}>
           <FieldLabel htmlFor={inputId(field.name)}>
-            {TEXT_FIELD_LABELS[name]} ({required ? "required" : "optional"})
+            {textField.label} ({textField.required ? "required" : "optional"})
           </FieldLabel>
-          {name === "eventType" ? (
+          {textField.name === "eventType" ? (
             <Input
               id={inputId(field.name)}
-              required={required}
-              disabled={!editable(name)}
+              required={textField.required}
+              disabled={!editable(textField.name)}
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={event => field.handleChange(event.target.value)}
@@ -543,13 +541,16 @@ export function EventRequestForm({
             <Textarea
               id={inputId(field.name)}
               rows={3}
-              required={required}
-              disabled={!editable(name)}
+              required={textField.required}
+              disabled={!editable(textField.name)}
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={event => field.handleChange(event.target.value)}
               aria-invalid={field.state.meta.errors.length > 0}
             />
+          )}
+          {textField.name === "accessibilityRequirements" && (
+            <FieldDescription>Enter None if there are no accessibility needs.</FieldDescription>
           )}
           <FieldError errors={field.state.meta.errors} />
         </Field>
@@ -623,15 +624,10 @@ export function EventRequestForm({
     { key: "proposedDates", render: renderProposedDates },
     { key: "expectedAttendance", render: renderExpectedAttendance },
     { key: "attendeeRegistration", render: renderRegistration },
-    { key: "description", render: () => renderTextField("description", true) },
-    { key: "eventType", render: () => renderTextField("eventType", false) },
-    { key: "venueRequirements", render: () => renderTextField("venueRequirements", true) },
-    { key: "roomLayoutPreference", render: () => renderTextField("roomLayoutPreference", true) },
-    {
-      key: "accessibilityRequirements",
-      render: () => renderTextField("accessibilityRequirements", true),
-    },
-    { key: "specialArrangements", render: () => renderTextField("specialArrangements", false) },
+    ...TEXT_FIELDS.map(textField => ({
+      key: textField.name,
+      render: () => renderTextField(textField),
+    })),
     { key: "equipmentRequirements", render: renderEquipment },
   ];
 
@@ -760,7 +756,7 @@ export function EventRequestForm({
       <p className="mb-4 body-sm text-muted-foreground">
         {mustBeComplete
           ? "Fields marked required must stay complete."
-          : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}
+          : "Fields marked required must be completed before you submit. A draft can keep them blank; submitting needs them filled."}
       </p>
 
       <FieldGroup>
@@ -772,14 +768,11 @@ export function EventRequestForm({
 
         <section
           className="space-y-6 border-t border-border pt-6"
-          aria-label="Optional requirements"
+          aria-label="Additional requirements"
         >
           <h3 className="display-h3">Additional requirements</h3>
-          {REQUIRED_TEXT_FIELDS.map(([name]) => (
-            <Fragment key={name}>{renderTextField(name, true)}</Fragment>
-          ))}
-          {OPTIONAL_TEXT_FIELDS.map(([name]) => (
-            <Fragment key={name}>{renderTextField(name, false)}</Fragment>
+          {TEXT_FIELDS.map(textField => (
+            <Fragment key={textField.name}>{renderTextField(textField)}</Fragment>
           ))}
         </section>
 

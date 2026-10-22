@@ -58,4 +58,29 @@ describe("event request amendments", () => {
       message: "This request is missing: Expected attendance",
     });
   });
+
+  it("does not block a reply on a row created before the listed-detail rule", () => {
+    const legacy = {
+      ...row,
+      description: "",
+      venueRequirements: "",
+      roomLayoutPreference: "",
+      accessibilityRequirements: "",
+    };
+
+    expect(() => amendedValues(legacy, { expectedAttendance: 90 })).not.toThrow();
+  });
+
+  it("refuses a reply that clears a permitted listed detail", () => {
+    let error: unknown;
+    try {
+      amendedValues(row, { description: "" });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({
+      status: 409,
+      message: "This request is missing: Description",
+    });
+  });
 });
