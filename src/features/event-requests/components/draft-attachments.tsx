@@ -16,6 +16,7 @@ import {
   uploadEventRequestAttachment,
 } from "#/features/event-requests/server-fns";
 import type { EventRequestAttachmentList } from "#/features/event-requests/server-fns";
+import { formatAttachmentSize } from "#/features/event-requests/format";
 import { useMutation } from "#/hooks/use-mutation";
 
 const LOAD_FAILED = "Could not load the attachments. Try again.";
@@ -24,12 +25,6 @@ const DOWNLOAD_FAILED = "Could not download this file. Try again.";
 const REMOVE_FAILED = "Could not remove this file. Try again.";
 /** Keep the blob URL alive while the browser starts the transfer. Firefox and Safari need it. */
 const DOWNLOAD_URL_LIFETIME_MS = 60_000;
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -206,7 +201,9 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 body-sm"
               >
                 <span className="font-medium text-foreground">{attachment.originalFilename}</span>
-                <span className="text-muted-foreground">{formatSize(attachment.sizeBytes)}</span>
+                <span className="text-muted-foreground">
+                  {formatAttachmentSize(attachment.sizeBytes)}
+                </span>
                 <Button
                   type="button"
                   variant="link"

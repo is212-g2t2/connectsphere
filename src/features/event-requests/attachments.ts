@@ -144,6 +144,10 @@ export function parseAttachmentDownload(data: unknown): { id: number; attachment
 /** The refusal an event attachment read answers when the row is missing or hidden. */
 export const EVENT_ATTACHMENT_GONE_MESSAGE = "This attachment is no longer available.";
 
+/** The event page's notice when object storage is not configured. */
+export const EVENT_ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE =
+  "Supporting documents are unavailable. Try again later.";
+
 interface EventAttachmentReader {
   role: string | null | undefined;
   userId: string;

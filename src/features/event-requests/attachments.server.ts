@@ -391,19 +391,13 @@ async function loadAttachmentEvent(
   return { ...event, hasSafetyReview: review !== undefined };
 }
 
-/**
- * List an event's attachments for the allow-list: the owning Organiser, the assigned
- * Coordinator, a Lead, or a Safety Officer reviewing it. Anyone else reads the same refusal as
- * a missing event (default deny). Metadata only, so this works while storage is unconfigured.
- * The result carries no object key or storage URL.
- */
-export async function handleListEventAttachments(
-  data: unknown,
-  user: SessionUser,
-  database: Database
-) {
-  const { id } = parseEventRequestId(data);
-  const event = await loadAttachmentEvent(database, id);
+/** Refuse a caller outside the event attachment allow-list as if the event were missing. */
+async function assertCanReadEventAttachments(
+  database: Database,
+  eventRequestId: number,
+  user: SessionUser
+): Promise<void> {
+  const event = await loadAttachmentEvent(database, eventRequestId);
   if (
     !event ||
     !canReadEventAttachments({
@@ -417,6 +411,21 @@ export async function handleListEventAttachments(
   ) {
     throw new NotFoundError(EVENT_ATTACHMENT_GONE_MESSAGE);
   }
+}
+
+/**
+ * List an event's attachments for the allow-list: the owning Organiser, the assigned
+ * Coordinator, a Lead, or a Safety Officer reviewing it. Anyone else reads the same refusal as
+ * a missing event (default deny). Metadata only, so this works while storage is unconfigured.
+ * The result carries no object key or storage URL.
+ */
+export async function handleListEventAttachments(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+) {
+  const { id } = parseEventRequestId(data);
+  await assertCanReadEventAttachments(database, id, user);
 
   const rows = await database
     .select({
@@ -430,13 +439,8 @@ export async function handleListEventAttachments(
     .where(eq(eventRequestAttachments.eventRequestId, id))
     .orderBy(asc(eventRequestAttachments.id));
 
-  return { attachments: rows };
+  return { attachments: rows, storageAvailable: isAttachmentStorageConfigured() };
 }
-
-/** One event attachment as the event page sees it. */
-export type EventAttachmentListing = Awaited<
-  ReturnType<typeof handleListEventAttachments>
->["attachments"][number];
 
 /**
  * Download an event attachment through the server. Checks the session's allow-list on every
@@ -451,20 +455,7 @@ export async function handleDownloadEventAttachment(
   storage: AttachmentStorage | null
 ) {
   const { id, attachmentId } = parseAttachmentDownload(data);
-  const event = await loadAttachmentEvent(database, id);
-  if (
-    !event ||
-    !canReadEventAttachments({
-      role: user.role,
-      userId: user.id,
-      organiserId: event.organiserId,
-      assignedCoordinatorId: event.assignedCoordinatorId,
-      status: event.status,
-      hasSafetyReview: event.hasSafetyReview,
-    })
-  ) {
-    throw new NotFoundError(EVENT_ATTACHMENT_GONE_MESSAGE);
-  }
+  await assertCanReadEventAttachments(database, id, user);
   if (!storage) throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE);
 
   const row = (
@@ -485,7 +476,16 @@ export async function handleDownloadEventAttachment(
   ).at(0);
   if (!row) throw new NotFoundError(EVENT_ATTACHMENT_GONE_MESSAGE);
 
-  const bytes = await storage.get(row.objectKey);
+  let bytes: Uint8Array | null;
+  try {
+    bytes = await storage.get(row.objectKey);
+  } catch (getError) {
+    log.warn("Event attachment object read failed", {
+      key: row.objectKey,
+      errorName: getError instanceof Error ? getError.name : "UnknownError",
+    });
+    throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE, { cause: getError });
+  }
   if (!bytes) throw new NotFoundError(EVENT_ATTACHMENT_GONE_MESSAGE);
 
   return {

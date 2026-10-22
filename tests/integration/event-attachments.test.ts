@@ -233,11 +233,26 @@ describe("Event attachment allow-list", () => {
     ).rejects.toMatchObject({ name: "NotFoundError", message: EVENT_ATTACHMENT_GONE_MESSAGE });
   });
 
+  it("refuses an attachment id that belongs to another event", async () => {
+    const first = await makeEvent();
+    const second = await makeEvent();
+
+    await expect(
+      handleDownloadEventAttachment(
+        { id: first.eventId, attachmentId: second.attachmentId },
+        organiser,
+        database as never,
+        first.storage
+      )
+    ).rejects.toMatchObject({ name: "NotFoundError", message: EVENT_ATTACHMENT_GONE_MESSAGE });
+  });
+
   it("lists metadata while storage is unconfigured, and names the unavailable download", async () => {
     const { eventId, attachmentId } = await makeEvent();
 
     const listed = await handleListEventAttachments({ id: eventId }, organiser, database as never);
     expect(listed.attachments).toHaveLength(1);
+    expect(listed.storageAvailable).toBe(true);
 
     await expect(
       handleDownloadEventAttachment(
