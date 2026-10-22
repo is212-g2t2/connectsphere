@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
-  MemoryAttachmentStorage,
+  getAttachmentStorage,
   handleDownloadEventAttachment,
   handleListEventAttachments,
   handleUploadEventRequestAttachment,
@@ -105,7 +105,8 @@ describe("Event attachment allow-list", () => {
    */
   async function makeEvent() {
     const draft = await handleSaveEventRequestDraft(completeDraft, organiser, database as never);
-    const storage = new MemoryAttachmentStorage();
+    const storage = getAttachmentStorage();
+    if (!storage) throw new Error("Attachment storage is not configured for integration tests.");
     const bytes = pdfBytes();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "floor-plan.pdf", bytes },
