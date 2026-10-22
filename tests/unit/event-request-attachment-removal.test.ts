@@ -51,11 +51,21 @@ function stubRemoveDatabase(owned: { objectKey: string; status: string } | null)
     owned ? [owned] : []
   );
   const deleteWhere = vi.fn<() => Promise<{ id: number }[]>>(async () => [{ id: 7 }]);
+  const tx = {
+    select: () => ({
+      from: () => ({
+        innerJoin: () => ({
+          where: () => ({ for: selectWhere }),
+        }),
+      }),
+    }),
+    delete: () => ({ where: deleteWhere }),
+  };
+  const transaction = vi.fn<(run: (value: typeof tx) => Promise<unknown>) => Promise<unknown>>(
+    async run => run(tx)
+  );
   return {
-    database: {
-      select: () => ({ from: () => ({ innerJoin: () => ({ where: selectWhere }) }) }),
-      delete: () => ({ where: deleteWhere }),
-    },
+    database: { transaction },
     selectWhere,
     deleteWhere,
   };
