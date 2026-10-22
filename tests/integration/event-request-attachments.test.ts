@@ -1,12 +1,13 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
+import type { AttachmentStorage } from "#/features/event-requests/attachments.server";
 import {
-  MemoryAttachmentStorage,
+  getAttachmentStorage,
   handleDownloadEventRequestAttachment,
   handleListEventRequestAttachments,
   handleRemoveEventRequestAttachment,
@@ -73,6 +74,31 @@ async function draftOwnedBy(who: SessionUser, database: ReturnType<typeof drizzl
   return handleSaveEventRequestDraft(completeDraft, who, database as never);
 }
 
+/**
+ * The real store from the testcontainer, wrapped to observe which keys are still live.
+ * Replacing `storage.keys()` assertions with this keeps every check against the real bucket.
+ */
+function testStorage(): { storage: AttachmentStorage; liveKeys(this: void): string[] } {
+  const real = getAttachmentStorage();
+  if (!real) throw new Error("Attachment storage is not configured for integration tests.");
+  const live = new Set<string>();
+  const storage: AttachmentStorage = {
+    async put(key, bytes, contentType) {
+      await real.put(key, bytes, contentType);
+      live.add(key);
+    },
+    get: key => real.get(key),
+    async remove(key) {
+      try {
+        await real.remove(key);
+      } finally {
+        live.delete(key);
+      }
+    },
+  };
+  return { storage, liveKeys: () => [...live] };
+}
+
 describe("Draft attachment storage", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -95,6 +121,18 @@ describe("Draft attachment storage", () => {
   });
 
   beforeEach(async () => {
+    // Remove the objects first: deleting the drafts cascades the rows that name them.
+    const rows = await database
+      .select({ objectKey: schema.eventRequestAttachments.objectKey })
+      .from(schema.eventRequestAttachments)
+      .innerJoin(
+        schema.eventRequests,
+        eq(schema.eventRequests.id, schema.eventRequestAttachments.eventRequestId)
+      )
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
+    const storage = getAttachmentStorage();
+    if (!storage) throw new Error("Attachment storage is not configured for integration tests.");
+    await Promise.all(rows.map(row => storage.remove(row.objectKey)));
     await database
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
@@ -109,7 +147,7 @@ describe("Draft attachment storage", () => {
 
   it("writes the object under a server-generated key and records the byte-identified type", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage } = testStorage();
     const bytes = pdfBytes();
 
     const row = await handleUploadEventRequestAttachment(
@@ -135,7 +173,7 @@ describe("Draft attachment storage", () => {
 
   it("refuses an oversized or unidentified file before writing any object", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
 
     const tooLarge = new Uint8Array(ATTACHMENT_MAX_BYTES + 1);
     tooLarge.set(pdfBytes());
@@ -157,14 +195,14 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toThrow(ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE);
 
-    expect(storage.keys()).toEqual([]);
+    expect(liveKeys()).toEqual([]);
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
   it("deletes the written object when the request is no longer a draft", async () => {
     const draft = await draftOwnedBy(organiser, database);
     await handleSubmitEventRequest({ id: draft.id }, organiser, database as never);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
 
     await expect(
       handleUploadEventRequestAttachment(
@@ -175,13 +213,13 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_NOT_DRAFT_MESSAGE });
 
-    expect(storage.keys()).toEqual([]);
+    expect(liveKeys()).toEqual([]);
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
   it("deletes the written object when the draft belongs to another organiser", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
 
     await expect(
       handleUploadEventRequestAttachment(
@@ -192,7 +230,7 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toMatchObject({ name: "AuthorizationError" });
 
-    expect(storage.keys()).toEqual([]);
+    expect(liveKeys()).toEqual([]);
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
@@ -200,7 +238,7 @@ describe("Draft attachment storage", () => {
   // oxlint-disable no-await-in-loop
   it("refuses the eleventh attachment and deletes its object", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
     for (let index = 0; index < 10; index++) {
       await handleUploadEventRequestAttachment(
         { eventRequestId: draft.id, filename: `plan-${index}.pdf`, bytes: pdfBytes(`-${index}`) },
@@ -219,14 +257,14 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_LIMIT_MESSAGE });
 
-    expect(storage.keys()).toHaveLength(10);
+    expect(liveKeys()).toHaveLength(10);
     expect(await attachmentRows(draft.id)).toHaveLength(10);
   });
   // oxlint-enable no-await-in-loop
 
   it("keeps the 10-file cap when eleven uploads race", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
 
     const results = await Promise.allSettled(
       Array.from({ length: 11 }, (_, index) =>
@@ -245,12 +283,12 @@ describe("Draft attachment storage", () => {
 
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(10);
     expect(await attachmentRows(draft.id)).toHaveLength(10);
-    expect(storage.keys()).toHaveLength(10);
+    expect(liveKeys()).toHaveLength(10);
   });
 
   it("lists the organiser's attachments oldest first, and none for another organiser", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage } = testStorage();
     const first = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "a.pdf", bytes: pdfBytes("a") },
       organiser,
@@ -287,7 +325,7 @@ describe("Draft attachment storage", () => {
 
   it("downloads the stored bytes with the stored content type", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage } = testStorage();
     const bytes = pdfBytes();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "plan.pdf", bytes },
@@ -510,19 +548,8 @@ describe("Draft attachment storage", () => {
   });
 
   it("round-trips a test object through the smoke check and leaves nothing behind", async () => {
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
     await runAttachmentSmokeCheck(storage);
-    expect(storage.keys()).toEqual([]);
-  });
-
-  it("refuses to start the in-memory store on Cloud Run", () => {
-    vi.stubEnv("K_SERVICE", "connectsphere-staging");
-    try {
-      expect(() => new MemoryAttachmentStorage()).toThrow(
-        "The in-memory attachment store must not run on Cloud Run."
-      );
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    expect(liveKeys()).toEqual([]);
   });
 });

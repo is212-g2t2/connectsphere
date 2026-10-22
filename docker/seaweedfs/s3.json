@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "actions": ["Admin", "List", "Read", "ReadAcp", "Tagging", "Write", "WriteAcp"],
+      "credentials": [
+        { "accessKey": "local-attachments-key", "secretKey": "local-attachments-secret-change-me" }
+      ],
+      "name": "local"
+    }
+  ]
+}

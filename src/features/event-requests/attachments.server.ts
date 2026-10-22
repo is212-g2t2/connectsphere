@@ -1,4 +1,3 @@
-// oxlint-disable node/no-process-env
 import { and, asc, eq } from "drizzle-orm";
 import { S3Client } from "bun";
 
@@ -49,39 +48,8 @@ export interface AttachmentStorage {
   remove(key: string): Promise<void>;
 }
 
-/**
- * In-memory store for integration tests. Refuses to start on Cloud Run, so a test double can
- * never serve production traffic.
- */
-export class MemoryAttachmentStorage implements AttachmentStorage {
-  private objects = new Map<string, { bytes: Uint8Array; contentType: string }>();
-
-  constructor() {
-    if (process.env.K_SERVICE ?? process.env.K_REVISION) {
-      throw new Error("The in-memory attachment store must not run on Cloud Run.");
-    }
-  }
-
-  async put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
-    this.objects.set(key, { bytes: bytes.slice(), contentType });
-  }
-
-  async get(key: string): Promise<Uint8Array | null> {
-    return this.objects.get(key)?.bytes.slice() ?? null;
-  }
-
-  async remove(key: string): Promise<void> {
-    this.objects.delete(key);
-  }
-
-  /** Test hook: the keys this store still holds. */
-  keys(): string[] {
-    return [...this.objects.keys()];
-  }
-}
-
 /** Bun's built-in S3 client against the private bucket (Cloudflare R2 in deployed
- * environments, MinIO locally). Keys are server-generated; callers never choose them. */
+ * environments, SeaweedFS locally). Keys are server-generated; callers never choose them. */
 export class S3AttachmentStorage implements AttachmentStorage {
   constructor(private readonly client: S3Client) {}
 
@@ -116,8 +84,8 @@ export function isAttachmentStorageConfigured(): boolean {
 /**
  * The configured store, or `null` when storage is not configured. Callers answer with
  * `ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE` and keep the rest of the page working. Cloudflare R2
- * answers the S3 API at the account's endpoint; a set `STORAGE_ENDPOINT` points at MinIO in local
- * development.
+ * answers the S3 API at the account's endpoint; a set `STORAGE_ENDPOINT` points at SeaweedFS in
+ * local development.
  */
 export function getAttachmentStorage(): AttachmentStorage | null {
   const {
