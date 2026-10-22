@@ -34,7 +34,11 @@ import { logger } from "#/lib/logger";
  */
 
 type Database = typeof Db;
-export type EventRequestAttachment = typeof eventRequestAttachments.$inferSelect;
+type EventRequestAttachment = typeof eventRequestAttachments.$inferSelect;
+type EventRequestAttachmentSummary = Pick<
+  EventRequestAttachment,
+  "id" | "eventRequestId" | "originalFilename" | "contentType" | "sizeBytes" | "createdAt"
+>;
 
 const log = logger.getChild("event-request-attachments");
 
@@ -76,20 +80,10 @@ export class MemoryAttachmentStorage implements AttachmentStorage {
   }
 }
 
-/** Bun's built-in S3 client against the private bucket (GCS S3 interop in deployed
+/** Bun's built-in S3 client against the private bucket (Cloudflare R2 in deployed
  * environments, MinIO locally). Keys are server-generated; callers never choose them. */
 export class S3AttachmentStorage implements AttachmentStorage {
-  private readonly client: S3Client;
-
-  constructor(options: {
-    bucket: string;
-    endpoint?: string;
-    region?: string;
-    accessKeyId?: string;
-    secretAccessKey?: string;
-  }) {
-    this.client = new S3Client(options);
-  }
+  constructor(private readonly client: S3Client) {}
 
   async put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
     await this.client.write(key, bytes, { type: contentType });
@@ -107,19 +101,41 @@ export class S3AttachmentStorage implements AttachmentStorage {
 }
 
 /**
- * The configured store, or `null` when `STORAGE_BUCKET` is unset. Callers answer with
- * `ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE` and keep the rest of the page working. GCS answers
- * the S3 API at its interop endpoint; a set `STORAGE_ENDPOINT` points at MinIO instead.
+ * Whether every value the store needs is present. A partial set reports attaching as
+ * unavailable instead of failing at the first request with a raw S3 error.
+ */
+export function isAttachmentStorageConfigured(): boolean {
+  return Boolean(
+    env.STORAGE_BUCKET &&
+    env.STORAGE_ENDPOINT &&
+    env.STORAGE_ACCESS_KEY_ID &&
+    env.STORAGE_SECRET_ACCESS_KEY
+  );
+}
+
+/**
+ * The configured store, or `null` when storage is not configured. Callers answer with
+ * `ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE` and keep the rest of the page working. Cloudflare R2
+ * answers the S3 API at the account's endpoint; a set `STORAGE_ENDPOINT` points at MinIO in local
+ * development.
  */
 export function getAttachmentStorage(): AttachmentStorage | null {
-  if (!env.STORAGE_BUCKET) return null;
-  return new S3AttachmentStorage({
-    bucket: env.STORAGE_BUCKET,
-    endpoint: env.STORAGE_ENDPOINT ?? "https://storage.googleapis.com",
-    region: env.STORAGE_REGION,
-    accessKeyId: env.STORAGE_ACCESS_KEY_ID,
-    secretAccessKey: env.STORAGE_SECRET_ACCESS_KEY,
-  });
+  const {
+    STORAGE_BUCKET: bucket,
+    STORAGE_ENDPOINT: endpoint,
+    STORAGE_ACCESS_KEY_ID: accessKeyId,
+    STORAGE_SECRET_ACCESS_KEY: secretAccessKey,
+  } = env;
+  if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) return null;
+  return new S3AttachmentStorage(
+    new S3Client({
+      bucket,
+      endpoint,
+      region: env.STORAGE_REGION ?? "auto",
+      accessKeyId,
+      secretAccessKey,
+    })
+  );
 }
 
 /**
@@ -132,11 +148,7 @@ export async function runAttachmentSmokeCheck(storage: AttachmentStorage): Promi
   await storage.put(key, sent, "text/plain");
   try {
     const read = await storage.get(key);
-    if (
-      !read ||
-      read.length !== sent.length ||
-      !read.every((byte, index) => byte === sent[index])
-    ) {
+    if (!read || Buffer.compare(Buffer.from(read), Buffer.from(sent)) !== 0) {
       throw new Error("Attachment smoke check read back unexpected bytes.");
     }
   } finally {
@@ -156,14 +168,19 @@ export async function handleUploadEventRequestAttachment(
   user: SessionUser,
   database: Database,
   storage: AttachmentStorage | null
-): Promise<EventRequestAttachment> {
+): Promise<EventRequestAttachmentSummary> {
   if (!storage) throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE);
   if (input.bytes.length > ATTACHMENT_MAX_BYTES) throw new Error(ATTACHMENT_TOO_LARGE_MESSAGE);
   const contentType = detectAttachmentContentType(input.bytes);
   if (!contentType) throw new Error(ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE);
 
   const key = `event-requests/${input.eventRequestId}/${crypto.randomUUID()}.${attachmentExtensionFor(contentType)}`;
-  await storage.put(key, input.bytes, contentType);
+  try {
+    await storage.put(key, input.bytes, contentType);
+  } catch (putError) {
+    log.warn("Attachment object write failed", { key, putError });
+    throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE, { cause: putError });
+  }
 
   try {
     return await database.transaction(async tx => {
@@ -197,7 +214,14 @@ export async function handleUploadEventRequestAttachment(
           sizeBytes: input.bytes.length,
           uploadedById: user.id,
         })
-        .returning();
+        .returning({
+          id: eventRequestAttachments.id,
+          eventRequestId: eventRequestAttachments.eventRequestId,
+          originalFilename: eventRequestAttachments.originalFilename,
+          contentType: eventRequestAttachments.contentType,
+          sizeBytes: eventRequestAttachments.sizeBytes,
+          createdAt: eventRequestAttachments.createdAt,
+        });
       return row;
     });
   } catch (error) {
@@ -234,13 +258,8 @@ export async function handleListEventRequestAttachments(
     )
     .orderBy(asc(eventRequestAttachments.id));
 
-  return { attachments: rows, storageAvailable: getAttachmentStorage() !== null };
+  return { attachments: rows, storageAvailable: isAttachmentStorageConfigured() };
 }
-
-/** One listed attachment as the draft page sees it. */
-export type EventRequestAttachmentListing = Awaited<
-  ReturnType<typeof handleListEventRequestAttachments>
->["attachments"][number];
 
 /**
  * AC3: download one of the organiser's attachments through the server. Returns the stored
@@ -275,7 +294,13 @@ export async function handleDownloadEventRequestAttachment(
   const row = rows.at(0);
   if (!row) throw new NotFoundError("This attachment is no longer available.");
 
-  const bytes = await storage.get(row.objectKey);
+  let bytes: Uint8Array | null;
+  try {
+    bytes = await storage.get(row.objectKey);
+  } catch (getError) {
+    log.warn("Attachment object read failed", { key: row.objectKey, getError });
+    throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE, { cause: getError });
+  }
   if (!bytes) throw new NotFoundError("This attachment is no longer available.");
 
   return {
