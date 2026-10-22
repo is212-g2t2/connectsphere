@@ -44,6 +44,7 @@ import {
   requireEventRequestCreate,
   replyToClarification,
   requestEventCancellation,
+  reuseEventRequest,
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
@@ -1635,6 +1636,23 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(getEventRequestDraft, { id: 1 }, "GET")).error).toBeUndefined();
       expect((await call(deleteEventRequestDraft, { id: 1 })).error).toBeUndefined();
     });
+
+    it("answers 401 and 403 on the reuse, and lets an organiser through (PTR-154)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      expect(await refusalFrom(reuseEventRequest, { id: 1 })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+
+      signIn("attendee");
+      expect(await refusalFrom(reuseEventRequest, { id: 1 })).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
+      signIn("event_organiser");
+      expect((await call(reuseEventRequest, { id: 1 })).error).toBeUndefined();
+    });
   });
 
   describe("accounts", () => {
@@ -1711,7 +1729,7 @@ describe("server-function authorization (PTR-69)", () => {
 
       const refused = await refusalFrom(
         seam(() =>
-          handleDeleteEventRequestDraft({ id: 2_147_483_647 }, organiser, database as never)
+          handleDeleteEventRequestDraft({ id: 2_147_483_647 }, organiser, database as never, null)
         ),
         {}
       );
@@ -1752,7 +1770,7 @@ describe("server-function authorization (PTR-69)", () => {
       try {
         const refused = await refusalFrom(
           seam(() =>
-            handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+            handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never, null)
           ),
           {}
         );
@@ -1777,7 +1795,9 @@ describe("server-function authorization (PTR-69)", () => {
 
       try {
         const refused = await refusalFrom(
-          seam(() => handleDeleteEventRequestDraft({ id: draft.id }, organiser, database as never)),
+          seam(() =>
+            handleDeleteEventRequestDraft({ id: draft.id }, organiser, database as never, null)
+          ),
           {}
         );
 

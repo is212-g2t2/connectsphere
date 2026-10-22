@@ -22,7 +22,7 @@ Both environments live in **one Google Cloud project**, and a runtime service ac
 
 Both services scale to zero, so the first request after an idle period pays the cold start (Bun boot plus Nitro initialization), softened by `startup_cpu_boost`. Every revision must pass a startup probe on `GET /api/health` before it receives traffic. The probe is an HTTP check, not a TCP check, so traffic never reaches a process that has not finished booting.
 
-`GET /api/health` is unauthenticated, and it deliberately does not touch the database. `GET /api/smoke` is the release gate: it requires `Authorization: Bearer $SMOKE_TOKEN`, runs `select 1`, and returns the Cloud Run revision that served it. An unset `SMOKE_TOKEN` answers 401.
+`GET /api/health` is unauthenticated, and it deliberately does not touch the database. `GET /api/smoke` is the release gate: it requires `Authorization: Bearer $SMOKE_TOKEN`, runs `select 1`, uploads and deletes a test object through the attachment bucket when storage is configured, and returns the Cloud Run revision that served it. An unset `SMOKE_TOKEN` answers 401.
 
 ## Releases
 
@@ -56,16 +56,18 @@ A failure after `migrate` leaves the migration applied. `cleanup` drops only the
 
 ### Secrets
 
-Secret Manager holds twelve containers: six names under each environment prefix. The Cloud Run container sees the bare name, and the prefix is a Secret Manager naming concern. Values never enter the Terraform state or a tfvars file. Operators add versions with `gcloud`.
+Secret Manager holds sixteen containers: eight names under each environment prefix. The Cloud Run container sees the bare name, and the prefix is a Secret Manager naming concern. Values never enter the Terraform state or a tfvars file. Operators add versions with `gcloud`.
 
-| Secret (`<env>-…`)   | Purpose                                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`       | Supabase **transaction pooler** (`:6543`) URL, used by the application with `prepare: false`          |
-| `BETTER_AUTH_SECRET` | `openssl rand -base64 48`. Distinct per environment.                                                  |
-| `SMOKE_TOKEN`        | `openssl rand -hex 32`. Distinct per environment, read by the `smoke` job.                            |
-| `CRON_TOKEN`         | `openssl rand -hex 32`. Distinct per environment. The notification worker's bearer (PTR-55).          |
-| `VITE_SENTRY_DSN`    | Sentry DSN: a build arg for the browser bundle and a runtime environment variable for the server SDK. |
-| `RESEND_API_KEY`     | Transactional email.                                                                                  |
+| Secret (`<env>-…`)          | Purpose                                                                                                                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`              | Supabase **transaction pooler** (`:6543`) URL, used by the application with `prepare: false`                                                               |
+| `BETTER_AUTH_SECRET`        | `openssl rand -base64 48`. Distinct per environment.                                                                                                       |
+| `SMOKE_TOKEN`               | `openssl rand -hex 32`. Distinct per environment, read by the `smoke` job.                                                                                 |
+| `CRON_TOKEN`                | `openssl rand -hex 32`. Distinct per environment. The notification worker's bearer (PTR-55).                                                               |
+| `VITE_SENTRY_DSN`           | Sentry DSN: a build arg for the browser bundle and a runtime environment variable for the server SDK.                                                      |
+| `RESEND_API_KEY`            | Transactional email.                                                                                                                                       |
+| `STORAGE_ACCESS_KEY_ID`     | R2 API token access key id for draft supporting documents. Created by hand (see [`infra/README.md`](../infra/README.md#attachment-storage-cloudflare-r2)). |
+| `STORAGE_SECRET_ACCESS_KEY` | R2 API token secret for draft supporting documents. Created by hand (see [`infra/README.md`](../infra/README.md#attachment-storage-cloudflare-r2)).        |
 
 Create a `CRON_TOKEN` version in **both** environments before you deploy a revision that references it. A Cloud Run revision that mounts a versionless secret never becomes ready. Install the real header of the Cloud Scheduler job after the first apply. See [`infra/README.md`](../infra/README.md#notification-email-worker).
 

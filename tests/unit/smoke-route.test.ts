@@ -1,13 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "#/routes/api/smoke";
 
-const { mockEnv, mockExecute } = vi.hoisted(() => {
-  const env: { SMOKE_TOKEN?: string } = {};
-  return { mockEnv: env, mockExecute: vi.fn<() => Promise<unknown[]>>() };
-});
+const { mockEnv, mockExecute, mockGetAttachmentStorage, mockRunAttachmentSmokeCheck } = vi.hoisted(
+  () => {
+    const env: { SMOKE_TOKEN?: string } = {};
+    return {
+      mockEnv: env,
+      mockExecute: vi.fn<() => Promise<unknown[]>>(),
+      mockGetAttachmentStorage: vi.fn<() => { marker: string } | null>(),
+      mockRunAttachmentSmokeCheck: vi.fn<() => Promise<void>>(),
+    };
+  }
+);
 
 vi.mock("#/env", () => ({ env: mockEnv }));
 vi.mock("#/db", () => ({ db: { execute: mockExecute } }));
+vi.mock("#/features/event-requests/attachments.server", () => ({
+  getAttachmentStorage: mockGetAttachmentStorage,
+  runAttachmentSmokeCheck: mockRunAttachmentSmokeCheck,
+}));
 
 function getGetHandler() {
   const handlers = Route.options.server?.handlers as
@@ -31,6 +42,8 @@ describe("GET /api/smoke", () => {
     vi.clearAllMocks();
     mockEnv.SMOKE_TOKEN = "smoke-token";
     mockExecute.mockResolvedValue([]);
+    mockGetAttachmentStorage.mockReturnValue(null);
+    mockRunAttachmentSmokeCheck.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -70,7 +83,43 @@ describe("GET /api/smoke", () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       revision: "connectsphere-00042-abc",
+      storage: "unconfigured",
     });
     expect(mockExecute).toHaveBeenCalledOnce();
+    expect(mockRunAttachmentSmokeCheck).not.toHaveBeenCalled();
+  });
+
+  it("round-trips a test object through the real bucket when storage is configured", async () => {
+    const storage = { marker: "bucket" };
+    mockGetAttachmentStorage.mockReturnValue(storage);
+
+    const response = await getGetHandler()({ request: smokeRequest("Bearer smoke-token") });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      revision: "local",
+      storage: "ok",
+    });
+    expect(mockRunAttachmentSmokeCheck).toHaveBeenCalledExactlyOnceWith(storage);
+  });
+
+  it("fails a deployed revision when storage is not configured", async () => {
+    vi.stubEnv("K_SERVICE", "connectsphere-staging");
+
+    await expect(getGetHandler()({ request: smokeRequest("Bearer smoke-token") })).rejects.toThrow(
+      "Attachment storage is not configured."
+    );
+    expect(mockRunAttachmentSmokeCheck).not.toHaveBeenCalled();
+  });
+
+  it("fails while the configured bucket is unreachable", async () => {
+    mockGetAttachmentStorage.mockReturnValue({ marker: "bucket" });
+    mockRunAttachmentSmokeCheck.mockRejectedValue(new Error("bucket down"));
+
+    // As with a database failure, the error travels and the platform answers 500.
+    await expect(getGetHandler()({ request: smokeRequest("Bearer smoke-token") })).rejects.toThrow(
+      "bucket down"
+    );
   });
 });

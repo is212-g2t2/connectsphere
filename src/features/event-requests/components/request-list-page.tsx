@@ -1,4 +1,4 @@
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Page, PageHeader } from "#/components/layout/page";
@@ -13,9 +13,11 @@ import {
 } from "#/components/ui/table";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
-import { deleteEventRequestDraft } from "#/features/event-requests/server-fns";
+import { isReusableEventRequest } from "#/features/event-requests/reuse";
+import { deleteEventRequestDraft, reuseEventRequest } from "#/features/event-requests/server-fns";
 import type {
   EventRequestDeleted,
+  EventRequestDraft,
   EventRequestSummary,
 } from "#/features/event-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
@@ -27,6 +29,7 @@ export const UNTITLED_REQUEST = "Untitled request";
 export const NOT_YET_ASSIGNED = "Not yet assigned";
 
 const DELETE_FAILED = "Could not delete this draft. Try again.";
+const REUSE_FAILED = "Could not start a new draft from this request. Try again.";
 
 /**
  * Show the Organiser's requests (PTR-14). The route passes loader rows as a prop, so unit tests can
@@ -34,12 +37,19 @@ const DELETE_FAILED = "Could not delete this draft. Try again.";
  */
 export function EventRequestListPage({ requests }: { requests: EventRequestSummary[] }) {
   const router = useRouter();
+  const navigate = useNavigate();
 
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [pendingReuseId, setPendingReuseId] = useState<number | null>(null);
 
   const [deleteState, deleteDraft, deleting] = useMutation<number, EventRequestDeleted>(
     id => deleteEventRequestDraft({ data: { id } }),
     DELETE_FAILED
+  );
+
+  const [reuseState, reuseRequest] = useMutation<number, EventRequestDraft>(
+    id => reuseEventRequest({ data: { id } }),
+    REUSE_FAILED
   );
 
   async function handleConfirmDelete(id: number) {
@@ -48,6 +58,24 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
     if (result.status === "success") {
       setPendingDeleteId(null);
       await router.invalidate({ filter: skipRootFilter });
+    }
+  }
+
+  /** PTR-154: copy a past request into a new draft and open it for editing. */
+  async function handleReuse(id: number) {
+    if (pendingReuseId !== null) return;
+    setPendingReuseId(id);
+    try {
+      const result = await reuseRequest(id);
+
+      if (result.status === "success") {
+        await navigate({
+          to: "/event-requests/reopenDraft/$id",
+          params: { id: String(result.data.id) },
+        });
+      }
+    } finally {
+      setPendingReuseId(null);
     }
   }
   return (
@@ -66,7 +94,14 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
         }
       />
       {deleteState.status === "error" && (
-        <p className="mt-4 body-sm text-destructive">{deleteState.error}</p>
+        <p role="alert" className="mt-4 body-sm text-destructive">
+          {deleteState.error}
+        </p>
+      )}
+      {reuseState.status === "error" && (
+        <p role="alert" className="mt-4 body-sm text-destructive">
+          {reuseState.error}
+        </p>
       )}
       {requests.length === 0 ? (
         <p className="mt-10 body-sm text-muted-foreground">
@@ -160,6 +195,18 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                           </Button>
                         </span>
                       ))}
+                    {isReusableEventRequest(request) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Reuse ${request.eventName.trim() || UNTITLED_REQUEST} as a new draft`}
+                        disabled={pendingReuseId !== null}
+                        onClick={() => void handleReuse(request.id)}
+                      >
+                        {pendingReuseId === request.id ? "Reusing…" : "Reuse as new draft"}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

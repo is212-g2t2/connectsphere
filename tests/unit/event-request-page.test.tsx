@@ -7,10 +7,20 @@ import { EventRequestsPage } from "#/features/event-requests/components/request-
 import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 
-const { saveEventRequestDraft, submitEventRequest } = vi.hoisted(() => ({
+const {
+  saveEventRequestDraft,
+  submitEventRequest,
+  listEventRequestAttachments,
+  uploadEventRequestAttachment,
+  downloadEventRequestAttachment,
+} = vi.hoisted(() => ({
   saveEventRequestDraft:
     vi.fn<(options: { data: { eventName: string; id?: number } }) => Promise<unknown>>(),
   submitEventRequest: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
+  listEventRequestAttachments: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
+  uploadEventRequestAttachment: vi.fn<(options: { data: FormData }) => Promise<unknown>>(),
+  downloadEventRequestAttachment:
+    vi.fn<(options: { data: { id: number; attachmentId: number } }) => Promise<unknown>>(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -22,10 +32,14 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("#/features/event-requests/server-fns", () => ({
   saveEventRequestDraft,
   submitEventRequest,
+  listEventRequestAttachments,
+  uploadEventRequestAttachment,
+  downloadEventRequestAttachment,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listEventRequestAttachments.mockResolvedValue({ attachments: [], storageAvailable: false });
 });
 
 function saveDraftNamed(name: string) {
