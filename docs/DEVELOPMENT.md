@@ -37,6 +37,14 @@ This guide covers the local development environment, the scripts catalogue, data
 
    The command deliberately excludes the `connectsphere` application container. It binds port 3000, and the E2E setup always starts its own production server on that port. See [Deployment](./DEPLOYMENT.md#the-normal-loop-services-in-docker-the-application-on-the-host) for the full stack.
 
+   The command also excludes the `storage` service. The application runs without it: the draft page reports attaching as unavailable and all else works. Start it only when you work on draft attachments:
+
+   ```bash
+   docker compose up -d storage
+   ```
+
+   This provisions **SeaweedFS** on `localhost:8333` as the local S3 store. It creates the `connectsphere-attachments-local` bucket on the first upload. Set the `STORAGE_*` values from `.env.example` to point the application at it.
+
 4. **Prepare the database**:
 
    Run the pending migrations to initialize the tables:
@@ -105,11 +113,11 @@ The seed also creates one hundred extra people (fifty attendees, fifty organiser
 | `EMAIL_FROM`                | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                                                  |
 | `SMTP_URL`                  | Optional | SMTP relay for outgoing mail (`smtp://host:port`). When set, the application sends over SMTP instead of Resend. The E2E run uses this path to capture reset emails through Mailpit |
 | `REDIS_URL`                 | Optional | Redis connection string for `src/lib/redis.server.ts` (Bun-native client). Nothing imports that module yet, so the value has no effect today                                       |
-| `STORAGE_BUCKET`            | Optional | Private bucket for draft supporting documents. Unset means attaching is unavailable while all else works                                                                           |
-| `STORAGE_ENDPOINT`          | Optional | S3-compatible endpoint (MinIO locally). Defaults to the provider endpoint when unset                                                                                               |
-| `STORAGE_REGION`            | Optional | Object storage region                                                                                                                                                              |
-| `STORAGE_ACCESS_KEY_ID`     | Optional | GCS S3-interop HMAC access id for draft supporting documents                                                                                                                       |
-| `STORAGE_SECRET_ACCESS_KEY` | Optional | GCS S3-interop HMAC secret for draft supporting documents                                                                                                                          |
+| `STORAGE_BUCKET`            | Optional | Object storage bucket for draft supporting documents (R2 in deployed environments, SeaweedFS locally). Unset means attaching is unavailable while all else works                   |
+| `STORAGE_ENDPOINT`          | Optional | R2 S3 endpoint for the account, or the local SeaweedFS endpoint (`http://localhost:8333` from `docker compose up -d storage`). Attachments stay off while it is unset              |
+| `STORAGE_REGION`            | Optional | R2 and SeaweedFS both use `auto`                                                                                                                                                   |
+| `STORAGE_ACCESS_KEY_ID`     | Optional | R2 API token access key id for draft supporting documents, or the local SeaweedFS identity                                                                                         |
+| `STORAGE_SECRET_ACCESS_KEY` | Optional | R2 API token secret for draft supporting documents, or the local SeaweedFS secret                                                                                                  |
 | `SENTRY_AUTH_TOKEN`         | Optional | Token for Sentry source map uploads at build time                                                                                                                                  |
 | `SENTRY_ENVIRONMENT`        | Optional | Sentry environment tag for the server SDK, read by `instrument.server.mjs`. Default: `development`. Terraform sets `production` or `staging` when deployed                         |
 | `VITE_APP_TITLE`            | Optional | Application title displayed in UI branding                                                                                                                                         |

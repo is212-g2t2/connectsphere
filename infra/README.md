@@ -11,7 +11,6 @@ State lives in `gs://connectsphere-is212-tfstate` (`prefix = terraform/state`). 
 | `state-bucket.tf` | The state bucket (imported, see below) and the project API enablement                                             |
 | `cloud-run.tf`    | Both Cloud Run services, their public invoker, the startup probe, and the domain mappings                         |
 | `secrets.tf`      | Sixteen Secret Manager containers and the per-environment runtime `secretAccessor` grants                         |
-| `storage.tf`      | One private bucket per environment for draft supporting documents, with per-environment object grants             |
 | `iam.tf`          | The WIF pool and provider, the deploy service account, its ref- and ref_type-scoped binding, the runtime accounts |
 | `cloudflare.tf`   | One CNAME per environment, pointing at `ghs.googlehosted.com`                                                     |
 | `scheduler.tf`    | One Cloud Scheduler job per environment: the every-minute notification email worker (PTR-55)                      |
@@ -107,26 +106,30 @@ gcloud scheduler jobs describe staging-notification-emails \
 
 Observe delivery from the job result and from the application. The response holds `{sent, failed, pending}`. Failures appear in Sentry. The dead-letter query is in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#notification-email-worker).
 
-### Attachment storage bucket and HMAC keys
+### Attachment storage (Cloudflare R2)
 
-`storage.tf` creates one private bucket per environment for draft supporting documents. The
-application reaches the bucket through the S3 interop API, which authenticates with HMAC keys,
-not the runtime service account. Create one key per environment and store the pair as secrets.
-The values never enter the Terraform state:
+Draft supporting documents live in one private R2 bucket per environment. Create the buckets by
+hand in the Cloudflare dashboard with the names `connectsphere-attachments-staging` and
+`connectsphere-attachments-prod`. Terraform does not own the buckets.
 
-```bash
-# Staging (repeat with prod- for production)
-gcloud storage hmac create cs-staging-run@connectsphere-is212.iam.gserviceaccount.com \
-  --project=connectsphere-is212
-printf "%s" "<access-id>" | gcloud secrets versions add staging-STORAGE_ACCESS_KEY_ID \
-  --project=connectsphere-is212 --data-file=-
-printf "%s" "<secret>" | gcloud secrets versions add staging-STORAGE_SECRET_ACCESS_KEY \
-  --project=connectsphere-is212 --data-file=-
-```
+1. Create an R2 API token with object read and write for both buckets.
+2. Store the token pair as secrets. The values never enter the Terraform state:
 
-Create both versions before the first deploy that mounts them. A revision that references a
-versionless secret never becomes ready. The `/api/smoke` release gate uploads and deletes a
-test object through the real bucket, so a deploy fails while the bucket or the keys are wrong.
+   ```bash
+   # Staging (repeat with prod- for production)
+   printf "%s" "<access-key-id>" | gcloud secrets versions add staging-STORAGE_ACCESS_KEY_ID \
+     --project=connectsphere-is212 --data-file=-
+   printf "%s" "<secret-access-key>" | gcloud secrets versions add staging-STORAGE_SECRET_ACCESS_KEY \
+     --project=connectsphere-is212 --data-file=-
+   ```
+
+3. Set `r2_account_id` in the git-ignored `infra/terraform.tfvars`, then apply. The Cloud Run
+   service receives `STORAGE_BUCKET`, `STORAGE_ENDPOINT` and `STORAGE_REGION=auto`. Until it is
+   set, the deployed smoke check fails, so a release cannot ship without storage.
+
+Create both secret versions before the deploy that mounts them. A revision that references a
+versionless secret never becomes ready. The `/api/smoke` release gate uploads and deletes a test
+object through the real bucket, so a deploy fails while the bucket or the token is wrong.
 
 ### Webmaster Central
 

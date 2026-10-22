@@ -15,7 +15,7 @@ export const env = createEnv({
     EMAIL_FROM: z.email().optional(),
     SMTP_URL: z.string().optional(),
     REDIS_URL: z.string().optional(),
-    /** Optional object storage for draft supporting documents. Unset means attaching is unavailable. */
+    /** Optional Cloudflare R2 bucket for draft supporting documents. Unset means attaching is unavailable. */
     STORAGE_BUCKET: z.string().min(1).optional(),
     STORAGE_ENDPOINT: z.url().optional(),
     STORAGE_REGION: z.string().min(1).optional(),

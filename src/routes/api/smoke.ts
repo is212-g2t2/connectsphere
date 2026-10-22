@@ -21,6 +21,12 @@ export const Route = createFileRoute("/api/smoke")({
         const storage = getAttachmentStorage();
         if (storage) {
           await runAttachmentSmokeCheck(storage);
+        } else if (
+          // oxlint-disable-next-line node/no-process-env
+          process.env.K_SERVICE
+        ) {
+          // Deployed environments must exercise the real bucket; a skipped check is not a gate.
+          throw new Error("Attachment storage is not configured.");
         }
 
         // Cloud Run injects K_REVISION. It has no local meaning. Keep it out of the schema.

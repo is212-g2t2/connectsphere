@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
-  MemoryAttachmentStorage,
+  getAttachmentStorage,
   handleDownloadEventAttachment,
   handleListEventAttachments,
   handleUploadEventRequestAttachment,
@@ -105,7 +105,8 @@ describe("Event attachment allow-list", () => {
    */
   async function makeEvent() {
     const draft = await handleSaveEventRequestDraft(completeDraft, organiser, database as never);
-    const storage = new MemoryAttachmentStorage();
+    const storage = getAttachmentStorage();
+    if (!storage) throw new Error("Attachment storage is not configured for integration tests.");
     const bytes = pdfBytes();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "floor-plan.pdf", bytes },
@@ -232,11 +233,26 @@ describe("Event attachment allow-list", () => {
     ).rejects.toMatchObject({ name: "NotFoundError", message: EVENT_ATTACHMENT_GONE_MESSAGE });
   });
 
+  it("refuses an attachment id that belongs to another event", async () => {
+    const first = await makeEvent();
+    const second = await makeEvent();
+
+    await expect(
+      handleDownloadEventAttachment(
+        { id: first.eventId, attachmentId: second.attachmentId },
+        organiser,
+        database as never,
+        first.storage
+      )
+    ).rejects.toMatchObject({ name: "NotFoundError", message: EVENT_ATTACHMENT_GONE_MESSAGE });
+  });
+
   it("lists metadata while storage is unconfigured, and names the unavailable download", async () => {
     const { eventId, attachmentId } = await makeEvent();
 
     const listed = await handleListEventAttachments({ id: eventId }, organiser, database as never);
     expect(listed.attachments).toHaveLength(1);
+    expect(listed.storageAvailable).toBe(true);
 
     await expect(
       handleDownloadEventAttachment(

@@ -820,7 +820,8 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     const deleted = await handleDeleteEventRequestDraft(
       { id: draft.id },
       organiser,
-      database as never
+      database as never,
+      null
     );
     expect(deleted.id).toBe(draft.id);
 
@@ -844,7 +845,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     );
 
     await expect(
-      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never, null)
     ).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
@@ -860,7 +861,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     );
 
     await expect(
-      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never)
+      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never, null)
     ).rejects.toMatchObject({
       name: "AuthorizationError",
       status: 403,

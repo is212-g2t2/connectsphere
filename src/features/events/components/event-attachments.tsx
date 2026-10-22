@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { Button } from "#/components/ui/button";
+import { EVENT_ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE } from "#/features/event-requests/attachments";
+import { formatAttachmentSize } from "#/features/event-requests/format";
 import { listEventAttachments } from "#/features/events/server-fns";
 import type { EventAttachmentList } from "#/features/events/server-fns";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
@@ -10,12 +13,6 @@ const LOAD_FAILED = "Could not load the supporting documents. Try again.";
 /** The download route for one event attachment. The route checks the allow-list per request. */
 export function eventAttachmentDownloadUrl(eventId: number, attachmentId: number): string {
   return `/api/event-attachments?id=${eventId}&attachmentId=${attachmentId}`;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
@@ -66,6 +63,7 @@ export function EventAttachments({ eventId }: { eventId: number }) {
   const refresh = useCallback(async () => {
     try {
       setListing(await listEventAttachments({ data: { id: eventId } }));
+      setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error && loadError.message ? loadError.message : LOAD_FAILED);
     }
@@ -77,21 +75,38 @@ export function EventAttachments({ eventId }: { eventId: number }) {
   }, [refresh]);
 
   const attachments = listing?.attachments ?? [];
+  const storageAvailable = listing?.storageAvailable ?? true;
 
   return (
     <div>
       <h2 className="display-h3">Supporting documents</h2>
       <p className="mt-2 body-sm text-muted-foreground">
-        Floor plans and programmes attached to this event.
+        Floor plans and programmes for this event.
       </p>
 
-      {error && (
-        <p role="alert" className="mt-4 body-sm font-medium text-destructive">
-          {error}
+      {!storageAvailable && (
+        <p className="mt-4 body-sm text-muted-foreground">
+          {EVENT_ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE}
         </p>
       )}
 
+      {error && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p role="alert" className="body-sm font-medium text-destructive">
+            {error}
+          </p>
+          <Button type="button" variant="link" size="sm" onClick={() => void refresh()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {listing === null && !error && (
+        <p className="mt-4 body-sm text-muted-foreground">Loading supporting documents…</p>
+      )}
+
       {listing !== null &&
+        storageAvailable &&
         (attachments.length === 0 ? (
           <p className="mt-4 body-sm text-muted-foreground">No supporting documents yet.</p>
         ) : (
@@ -102,10 +117,13 @@ export function EventAttachments({ eventId }: { eventId: number }) {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 body-sm"
               >
                 <span className="font-medium text-foreground">{attachment.originalFilename}</span>
-                <span className="text-muted-foreground">{formatSize(attachment.sizeBytes)}</span>
+                <span className="text-muted-foreground">
+                  {formatAttachmentSize(attachment.sizeBytes)}
+                </span>
                 <a
                   href={eventAttachmentDownloadUrl(eventId, attachment.id)}
                   download={attachment.originalFilename}
+                  aria-label={`Download ${attachment.originalFilename}`}
                   className={NAV_LINK_CLASSNAME}
                 >
                   Download

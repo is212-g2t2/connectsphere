@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE } from "#/features/event-requests/attachments";
 import { Route } from "#/routes/api/event-attachments";
 
 const { mockGetSession, mockHandleDownload, mockGetStorage } = vi.hoisted(() => ({
@@ -79,34 +80,73 @@ describe("GET /api/event-attachments", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/pdf");
     expect(response.headers.get("Content-Disposition")).toBe(
-      'attachment; filename="floor-plan.pdf"'
+      "attachment; filename=\"floor-plan.pdf\"; filename*=UTF-8''floor-plan.pdf"
     );
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
     expect(mockHandleDownload).toHaveBeenCalledOnce();
   });
 
-  it("refuses an unauthorized caller with the same response as a missing attachment", async () => {
-    const gone = new NotFoundError("This attachment is no longer available.");
-    mockHandleDownload.mockRejectedValue(gone);
-    const refused = await getHandler()({ request: downloadRequest("?id=41&attachmentId=7") });
+  it("serves a filename outside Latin-1 through the encoded form", async () => {
+    const bytes = new TextEncoder().encode("%PDF-1.4 plan");
+    mockHandleDownload.mockResolvedValue({
+      filename: "会议纪要.pdf",
+      contentType: "application/pdf",
+      sizeBytes: bytes.length,
+      bytes,
+    });
 
-    mockHandleDownload.mockRejectedValue(gone);
-    const missing = await getHandler()({ request: downloadRequest("?id=41&attachmentId=999") });
+    const response = await getHandler()({ request: downloadRequest("?id=41&attachmentId=7") });
 
-    expect(refused.status).toBe(404);
-    expect(missing.status).toBe(404);
-    const [refusedBody, missingBody] = await Promise.all([refused.json(), missing.json()]);
-    expect(refusedBody).toEqual({ error: "This attachment is no longer available." });
-    expect(missingBody).toEqual(refusedBody);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="____.pdf"; filename*=UTF-8''${encodeURIComponent("会议纪要.pdf")}`
+    );
+  });
+
+  it("escapes characters that are not RFC 5987 attr-char", async () => {
+    const bytes = new TextEncoder().encode("%PDF-1.4 plan");
+    mockHandleDownload.mockResolvedValue({
+      filename: "floor plan (1)'.pdf",
+      contentType: "application/pdf",
+      sizeBytes: bytes.length,
+      bytes,
+    });
+
+    const response = await getHandler()({ request: downloadRequest("?id=41&attachmentId=7") });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="floor plan (1)'.pdf"; filename*=UTF-8''floor%20plan%20%281%29%27.pdf`
+    );
+  });
+
+  it("maps a missing attachment to 404", async () => {
+    mockHandleDownload.mockRejectedValue(
+      new NotFoundError("This attachment is no longer available.")
+    );
+
+    const response = await getHandler()({ request: downloadRequest("?id=41&attachmentId=999") });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "This attachment is no longer available.",
+    });
+  });
+
+  it("maps an unexpected failure to a generic 500 without its detail", async () => {
+    mockHandleDownload.mockRejectedValue(new Error("bucket secret is at https://internal"));
+
+    const response = await getHandler()({ request: downloadRequest("?id=41&attachmentId=7") });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Could not download this file. Try again.",
+    });
   });
 
   it("answers 503 while storage is unconfigured", async () => {
-    mockHandleDownload.mockRejectedValue(
-      new Error(
-        "File attachments are unavailable. Save the draft without files and try again later."
-      )
-    );
+    mockHandleDownload.mockRejectedValue(new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE));
 
     const response = await getHandler()({ request: downloadRequest("?id=41&attachmentId=7") });
 

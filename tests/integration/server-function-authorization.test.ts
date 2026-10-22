@@ -1729,7 +1729,7 @@ describe("server-function authorization (PTR-69)", () => {
 
       const refused = await refusalFrom(
         seam(() =>
-          handleDeleteEventRequestDraft({ id: 2_147_483_647 }, organiser, database as never)
+          handleDeleteEventRequestDraft({ id: 2_147_483_647 }, organiser, database as never, null)
         ),
         {}
       );
@@ -1770,7 +1770,7 @@ describe("server-function authorization (PTR-69)", () => {
       try {
         const refused = await refusalFrom(
           seam(() =>
-            handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+            handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never, null)
           ),
           {}
         );
@@ -1795,7 +1795,9 @@ describe("server-function authorization (PTR-69)", () => {
 
       try {
         const refused = await refusalFrom(
-          seam(() => handleDeleteEventRequestDraft({ id: draft.id }, organiser, database as never)),
+          seam(() =>
+            handleDeleteEventRequestDraft({ id: draft.id }, organiser, database as never, null)
+          ),
           {}
         );
 

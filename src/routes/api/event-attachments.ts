@@ -6,6 +6,27 @@ import { logger } from "#/lib/logger";
 const log = logger.getChild("event-attachments");
 
 /**
+ * Percent-encode a filename for the RFC 5987 `filename*` parameter. `encodeURIComponent` leaves
+ * `'`, `(`, `)`, `*` unescaped, and those are not `attr-char`.
+ */
+function encodeFilenameValue(filename: string): string {
+  return encodeURIComponent(filename).replace(
+    /['()*]/gu,
+    character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+/**
+ * Build an attachment disposition for any filename. The quoted fallback stays ASCII; the real
+ * name travels in `filename*`, because a header value above Latin-1 throws when the response is
+ * built.
+ */
+function attachmentDisposition(filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7e]/gu, "_").replace(/["\\]/gu, "_") || "attachment";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeFilenameValue(filename)}`;
+}
+
+/**
  * Serve one event attachment as a download. Checks the session and the attachment allow-list
  * (the owning Organiser, the assigned Coordinator, a Lead, or a Safety Officer reviewing it)
  * on every request. Anyone else gets the same 404 as a missing attachment, never the bytes.
@@ -48,14 +69,13 @@ export const Route = createFileRoute("/api/event-attachments")({
             db,
             getAttachmentStorage()
           );
-          const filename = downloaded.filename.replace(/["\\\r\n]/g, "_");
           return new Response(Buffer.from(downloaded.bytes), {
             status: 200,
             headers: {
               "Content-Type": downloaded.contentType,
-              "Content-Disposition": `attachment; filename="${filename}"`,
+              "Content-Disposition": attachmentDisposition(downloaded.filename),
               "X-Content-Type-Options": "nosniff",
-              "Content-Length": String(downloaded.sizeBytes),
+              "Content-Length": String(downloaded.bytes.length),
               "Cache-Control": "private, no-store",
             },
           });

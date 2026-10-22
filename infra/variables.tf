@@ -33,3 +33,12 @@ variable "enable_domain_mapping" {
   type    = bool
   default = false
 }
+
+# Cloudflare account id for the R2 S3 endpoint. Set it in the git-ignored terraform.tfvars before
+# a release deploy. While it is empty, attachments are unavailable and the deployed smoke check
+# fails, so that release cannot ship without storage.
+variable "r2_account_id" {
+  type        = string
+  default     = ""
+  description = "Cloudflare account id used to build the R2 endpoint."
+}

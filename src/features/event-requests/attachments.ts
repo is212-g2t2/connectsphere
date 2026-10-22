@@ -12,6 +12,19 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /** AC2: the server refuses a file larger than this. */
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+/** The request body cap: one maximum file plus multipart overhead. */
+export const ATTACHMENT_MAX_BODY_BYTES = ATTACHMENT_MAX_BYTES + 1024 * 1024;
+
+/**
+ * True when a request body is over the cap, or arrives without a declared length. A streamed
+ * body cannot be measured before the framework reads it, so the request is refused.
+ */
+export function exceedsRequestBodyLimit(contentLength: string | null, hasBody: boolean): boolean {
+  if (!hasBody) return false;
+  if (contentLength === null) return true;
+  const length = Number(contentLength);
+  return !Number.isFinite(length) || length > ATTACHMENT_MAX_BODY_BYTES;
+}
 /** AC1: a draft holds at most this many attachments. */
 export const ATTACHMENT_MAX_COUNT = 10;
 
@@ -34,6 +47,7 @@ export const ATTACHMENT_CONTENT_TYPES = {
   pdf: "application/pdf",
   png: "image/png",
   jpg: "image/jpeg",
+  jpeg: "image/jpeg",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 } as const;
 
@@ -44,31 +58,19 @@ const ATTACHMENT_EXTENSIONS = [
   "pdf",
   "png",
   "jpg",
+  "jpeg",
   "docx",
 ] as const satisfies readonly AttachmentExtension[];
 
 /** The file input's `accept` value, derived from the supported extensions. */
-export const ATTACHMENT_ACCEPT = ".pdf,.png,.jpg,.jpeg,.docx";
+export const ATTACHMENT_ACCEPT = ATTACHMENT_EXTENSIONS.map(extension => `.${extension}`).join(",");
 
 function bytesStartWith(bytes: Uint8Array, prefix: readonly number[]): boolean {
   return prefix.every((byte, index) => bytes[index] === byte);
 }
 
 function containsAscii(bytes: Uint8Array, needle: string): boolean {
-  if (needle.length === 0 || needle.length > bytes.length) return false;
-  const first = needle.charCodeAt(0);
-  for (let i = 0; i <= bytes.length - needle.length; i++) {
-    if (bytes[i] !== first) continue;
-    let match = true;
-    for (let j = 1; j < needle.length; j++) {
-      if (bytes[i + j] !== needle.charCodeAt(j)) {
-        match = false;
-        break;
-      }
-    }
-    if (match) return true;
-  }
-  return false;
+  return new TextDecoder("latin1").decode(bytes).includes(needle);
 }
 
 /**
@@ -125,6 +127,7 @@ export function parseAttachmentUpload(data: unknown): { id: number; file: File }
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   const file = data.get("file");
   if (!(file instanceof File) || file.size === 0) throw new Error(ATTACHMENT_FILE_REQUIRED_MESSAGE);
+  if (file.size > ATTACHMENT_MAX_BYTES) throw new Error(ATTACHMENT_TOO_LARGE_MESSAGE);
   return { id: parsed.data.id, file };
 }
 
@@ -140,6 +143,10 @@ export function parseAttachmentDownload(data: unknown): { id: number; attachment
 
 /** The refusal an event attachment read answers when the row is missing or hidden. */
 export const EVENT_ATTACHMENT_GONE_MESSAGE = "This attachment is no longer available.";
+
+/** The event page's notice when object storage is not configured. */
+export const EVENT_ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE =
+  "Supporting documents are unavailable. Try again later.";
 
 interface EventAttachmentReader {
   role: string | null | undefined;
