@@ -73,31 +73,33 @@ async function draftOwnedBy(who: SessionUser, database: ReturnType<typeof drizzl
 }
 
 /**
- * The real store from the testcontainer, wrapped to observe which keys are still live.
- * Replacing `storage.keys()` assertions with this keeps every check against the real bucket.
+ * The real store from the testcontainer, wrapped to observe which keys still exist.
+ * `liveKeys` reads the bucket, so a failed delete cannot pass as a removed object.
  */
-function testStorage(): { storage: AttachmentStorage; liveKeys(this: void): string[] } {
+function testStorage(): { storage: AttachmentStorage; liveKeys(this: void): Promise<string[]> } {
   const real = getAttachmentStorage();
   if (!real) throw new Error("Attachment storage is not configured for integration tests.");
-  const live = new Set<string>();
+  const written = new Set<string>();
   const storage: AttachmentStorage = {
     async put(key, bytes, contentType) {
       await real.put(key, bytes, contentType);
-      live.add(key);
+      written.add(key);
     },
     get: key => real.get(key),
-    async remove(key) {
-      try {
-        await real.remove(key);
-      } finally {
-        live.delete(key);
-      }
+    remove: key => real.remove(key),
+  };
+  return {
+    storage,
+    liveKeys: async () => {
+      const keys = await Promise.all(
+        [...written].map(async key => ((await real.get(key)) ? key : null))
+      );
+      return keys.filter((key): key is string => key !== null);
     },
   };
-  return { storage, liveKeys: () => [...live] };
 }
 
-describe("Draft attachment storage", () => {
+describe("Draft attachment storage", { timeout: 15_000 }, () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -193,7 +195,7 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toThrow(ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE);
 
-    expect(liveKeys()).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
@@ -211,7 +213,7 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_NOT_DRAFT_MESSAGE });
 
-    expect(liveKeys()).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
@@ -228,7 +230,7 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toMatchObject({ name: "AuthorizationError" });
 
-    expect(liveKeys()).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
     expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
@@ -255,7 +257,7 @@ describe("Draft attachment storage", () => {
       )
     ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_LIMIT_MESSAGE });
 
-    expect(liveKeys()).toHaveLength(10);
+    expect(await liveKeys()).toHaveLength(10);
     expect(await attachmentRows(draft.id)).toHaveLength(10);
   });
   // oxlint-enable no-await-in-loop
@@ -281,7 +283,7 @@ describe("Draft attachment storage", () => {
 
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(10);
     expect(await attachmentRows(draft.id)).toHaveLength(10);
-    expect(liveKeys()).toHaveLength(10);
+    expect(await liveKeys()).toHaveLength(10);
   });
 
   it("lists the organiser's attachments oldest first, and none for another organiser", async () => {
@@ -381,6 +383,6 @@ describe("Draft attachment storage", () => {
   it("round-trips a test object through the smoke check and leaves nothing behind", async () => {
     const { storage, liveKeys } = testStorage();
     await runAttachmentSmokeCheck(storage);
-    expect(liveKeys()).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
   });
 });

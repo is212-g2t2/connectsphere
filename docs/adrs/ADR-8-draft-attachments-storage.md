@@ -14,8 +14,8 @@ so the browser never holds bucket credentials.
 
 Local development and integration tests need a real S3 endpoint. The maintainer evaluated
 SeaweedFS (`chrislusf/seaweedfs:4.48`) and RustFS (`rustfs/rustfs:1.0.3`) with throwaway
-containers and Bun's built-in S3 client, then chose SeaweedFS. The in-memory test adapter is
-gone: no test double remains.
+containers and Bun's built-in S3 client, then chose SeaweedFS. The in-memory store is gone; the
+S3 client used under Node is a fetch-based stand-in that signs real requests.
 
 ## Decision
 
