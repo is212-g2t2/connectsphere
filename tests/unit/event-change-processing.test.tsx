@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import {
@@ -13,9 +13,6 @@ import {
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { EventDetailPage } from "#/features/events/components/event-detail-page";
 import type { EventPageData } from "#/features/events/page-data";
-
-// The staff sections can take more than the default 5 seconds to load on a busy worker.
-vi.setConfig({ testTimeout: 15_000 });
 
 const { updateEventInformation, listEventArrangements, declineEventChangeRequest, invalidate } =
   vi.hoisted(() => ({
@@ -57,6 +54,11 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ navigate: vi.fn<() => void>(), invalidate }),
 }));
 vi.mock("sonner", () => ({ toast: { success, info, warning, error } }));
+
+// Load the staff module before tests start so its first transform uses the hook timeout.
+beforeAll(async () => {
+  await import("#/features/events/components/event-staff-page");
+}, 30_000);
 
 const coordinators = [{ id: "coord-a", name: "Alex", email: "a@example.com" }];
 
@@ -167,11 +169,7 @@ function renderPage(overrides: Partial<CoordinationRequest> = {}) {
  * on it first, so read section content only after the fallback clears.
  */
 async function settleSections() {
-  await waitFor(
-    () => expect(screen.queryByText("Loading sections…")).toBeNull(),
-    // The first settle in the file also pays the staff chunk's transform. Allow for a loaded worker.
-    { timeout: 10_000 }
-  );
+  await waitFor(() => expect(screen.queryByText("Loading sections…")).toBeNull());
 }
 
 const decisions = () =>
