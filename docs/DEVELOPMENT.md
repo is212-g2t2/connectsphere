@@ -93,24 +93,29 @@ The seed also creates one hundred extra people (fifty attendees, fifty organiser
 
 ## Environment Variables
 
-| Variable              | Required | Description                                                                                                                                                                        |
-| --------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | ✅       | PostgreSQL connection string                                                                                                                                                       |
-| `BETTER_AUTH_SECRET`  | ✅       | 32+ character secret for session signing                                                                                                                                           |
-| `BETTER_AUTH_URL`     | ✅       | Application origin (default: `http://localhost:3000`)                                                                                                                              |
-| `SMOKE_TOKEN`         | Optional | Bearer token for `/api/smoke`. Required in deployed environments, where the deploy workflow reads it from Secret Manager. An unset token answers 401                               |
-| `CRON_TOKEN`          | Optional | Bearer token for `/api/cron/notifications`, the notification email worker (PTR-55). An unset token answers 401. Cloud Scheduler supplies the token when deployed                   |
-| `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                                                   |
-| `RESEND_API_KEY`      | Optional | Required to send email. The application boots without it, and email calls throw a clear error                                                                                      |
-| `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                                                  |
-| `SMTP_URL`            | Optional | SMTP relay for outgoing mail (`smtp://host:port`). When set, the application sends over SMTP instead of Resend. The E2E run uses this path to capture reset emails through Mailpit |
-| `REDIS_URL`           | Optional | Redis connection string for `src/lib/redis.server.ts` (Bun-native client). Nothing imports that module yet, so the value has no effect today                                       |
-| `SENTRY_AUTH_TOKEN`   | Optional | Token for Sentry source map uploads at build time                                                                                                                                  |
-| `SENTRY_ENVIRONMENT`  | Optional | Sentry environment tag for the server SDK, read by `instrument.server.mjs`. Default: `development`. Terraform sets `production` or `staging` when deployed                         |
-| `VITE_APP_TITLE`      | Optional | Application title displayed in UI branding                                                                                                                                         |
-| `VITE_SENTRY_DSN`     | Optional | Enables Sentry error tracking                                                                                                                                                      |
-| `VITE_SENTRY_ORG`     | Optional | Sentry organization slug                                                                                                                                                           |
-| `VITE_SENTRY_PROJECT` | Optional | Sentry project slug                                                                                                                                                                |
+| Variable                    | Required | Description                                                                                                                                                                        |
+| --------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`              | ✅       | PostgreSQL connection string                                                                                                                                                       |
+| `BETTER_AUTH_SECRET`        | ✅       | 32+ character secret for session signing                                                                                                                                           |
+| `BETTER_AUTH_URL`           | ✅       | Application origin (default: `http://localhost:3000`)                                                                                                                              |
+| `SMOKE_TOKEN`               | Optional | Bearer token for `/api/smoke`. Required in deployed environments, where the deploy workflow reads it from Secret Manager. An unset token answers 401                               |
+| `CRON_TOKEN`                | Optional | Bearer token for `/api/cron/notifications`, the notification email worker (PTR-55). An unset token answers 401. Cloud Scheduler supplies the token when deployed                   |
+| `SERVER_URL`                | Optional | Canonical public application URL                                                                                                                                                   |
+| `RESEND_API_KEY`            | Optional | Required to send email. The application boots without it, and email calls throw a clear error                                                                                      |
+| `EMAIL_FROM`                | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                                                  |
+| `SMTP_URL`                  | Optional | SMTP relay for outgoing mail (`smtp://host:port`). When set, the application sends over SMTP instead of Resend. The E2E run uses this path to capture reset emails through Mailpit |
+| `REDIS_URL`                 | Optional | Redis connection string for `src/lib/redis.server.ts` (Bun-native client). Nothing imports that module yet, so the value has no effect today                                       |
+| `STORAGE_BUCKET`            | Optional | Private bucket for draft supporting documents. Unset means attaching is unavailable while all else works                                                                           |
+| `STORAGE_ENDPOINT`          | Optional | S3-compatible endpoint (MinIO locally). Defaults to the provider endpoint when unset                                                                                               |
+| `STORAGE_REGION`            | Optional | Object storage region                                                                                                                                                              |
+| `STORAGE_ACCESS_KEY_ID`     | Optional | GCS S3-interop HMAC access id for draft supporting documents                                                                                                                       |
+| `STORAGE_SECRET_ACCESS_KEY` | Optional | GCS S3-interop HMAC secret for draft supporting documents                                                                                                                          |
+| `SENTRY_AUTH_TOKEN`         | Optional | Token for Sentry source map uploads at build time                                                                                                                                  |
+| `SENTRY_ENVIRONMENT`        | Optional | Sentry environment tag for the server SDK, read by `instrument.server.mjs`. Default: `development`. Terraform sets `production` or `staging` when deployed                         |
+| `VITE_APP_TITLE`            | Optional | Application title displayed in UI branding                                                                                                                                         |
+| `VITE_SENTRY_DSN`           | Optional | Enables Sentry error tracking                                                                                                                                                      |
+| `VITE_SENTRY_ORG`           | Optional | Sentry organization slug                                                                                                                                                           |
+| `VITE_SENTRY_PROJECT`       | Optional | Sentry project slug                                                                                                                                                                |
 
 ## Scripts Catalogue
 
