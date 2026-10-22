@@ -19,17 +19,17 @@ so the browser never holds bucket credentials.
   per draft; a file holds at most 10 MB as PDF, PNG, JPEG, or DOCX.
 - One `AttachmentStorage` seam (`src/features/event-requests/attachments.server.ts`) with two
   adapters. `S3AttachmentStorage` uses Bun's built-in S3 client against a private per-environment
-  bucket (GCS S3 interop when deployed, MinIO locally). `MemoryAttachmentStorage` serves
+  Cloudflare R2 bucket (any S3-compatible endpoint locally). `MemoryAttachmentStorage` serves
   integration tests and refuses to start on Cloud Run.
 - The server writes the object first, then in one short transaction locks the event row, checks
   the request is still the caller's draft under the attachment limit, and inserts the row. A
   failed check deletes the object (best effort, logged) and refuses with the reason named.
 - The stored and served content type comes from magic-byte detection, never the client header.
-- Authenticate with per-environment GCS HMAC keys. Operators create each pair with
-  `gcloud storage hmac create` and store it as `STORAGE_ACCESS_KEY_ID` /
-  `STORAGE_SECRET_ACCESS_KEY`. The values never enter Terraform state, and only the
-  environment's runtime account reads them. All five `STORAGE_*` variables are optional; an
-  unset `STORAGE_BUCKET` reports attaching as unavailable while the rest of the app works.
+- Authenticate with a per-environment Cloudflare R2 API token. Operators create the private
+  buckets by hand in the Cloudflare dashboard, then store the token pair as
+  `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY`. The values never enter Terraform state.
+  All five `STORAGE_*` variables are optional; a partial set reports attaching as unavailable
+  while the rest of the app works.
 - `/api/smoke` uploads and deletes a test object through the real bucket when storage is
   configured, so the release pipeline fails while the bucket or the keys are wrong.
 

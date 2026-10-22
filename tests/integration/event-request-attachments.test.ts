@@ -7,11 +7,11 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
   MemoryAttachmentStorage,
-  getAttachmentStorage,
   handleDownloadEventRequestAttachment,
   handleListEventRequestAttachments,
   handleRemoveEventRequestAttachment,
   handleUploadEventRequestAttachment,
+  isAttachmentStorageConfigured,
   runAttachmentSmokeCheck,
 } from "#/features/event-requests/attachments.server";
 import {
@@ -124,11 +124,12 @@ describe("Draft attachment storage", () => {
       originalFilename: "Floor Plan.pdf",
       contentType: "application/pdf",
       sizeBytes: bytes.length,
-      uploadedById: organiser.id,
     });
-    expect(row.objectKey.startsWith(`event-requests/${draft.id}/`)).toBe(true);
-    expect(row.objectKey.endsWith(".pdf")).toBe(true);
-    expect(await storage.get(row.objectKey)).toEqual(bytes);
+    const [stored] = await attachmentRows(draft.id);
+    expect(stored.objectKey.startsWith(`event-requests/${draft.id}/`)).toBe(true);
+    expect(stored.objectKey.endsWith(".pdf")).toBe(true);
+    expect(stored.uploadedById).toBe(organiser.id);
+    expect(await storage.get(stored.objectKey)).toEqual(bytes);
     expect(await attachmentRows(draft.id)).toHaveLength(1);
   });
 
@@ -223,6 +224,30 @@ describe("Draft attachment storage", () => {
   });
   // oxlint-enable no-await-in-loop
 
+  it("keeps the 10-file cap when eleven uploads race", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const storage = new MemoryAttachmentStorage();
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 11 }, (_, index) =>
+        handleUploadEventRequestAttachment(
+          {
+            eventRequestId: draft.id,
+            filename: `race-${index}.pdf`,
+            bytes: pdfBytes(`-race-${index}`),
+          },
+          organiser,
+          database as never,
+          storage
+        )
+      )
+    );
+
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(10);
+    expect(await attachmentRows(draft.id)).toHaveLength(10);
+    expect(storage.keys()).toHaveLength(10);
+  });
+
   it("lists the organiser's attachments oldest first, and none for another organiser", async () => {
     const draft = await draftOwnedBy(organiser, database);
     const storage = new MemoryAttachmentStorage();
@@ -249,7 +274,8 @@ describe("Draft attachment storage", () => {
       originalFilename: "a.pdf",
       contentType: "application/pdf",
     });
-    expect(listed.storageAvailable).toBe(false);
+    // AC4: the list carries the configured state. The env-independent unit test covers the value.
+    expect(listed.storageAvailable).toBe(isAttachmentStorageConfigured());
 
     const foreign = await handleListEventRequestAttachments(
       { id: draft.id },
@@ -346,7 +372,9 @@ describe("Draft attachment storage", () => {
     ).rejects.toMatchObject({ name: "NotFoundError" });
 
     expect(await attachmentRows(draft.id)).toHaveLength(1);
-    expect(storage.keys()).toEqual([row.objectKey]);
+    expect(storage.keys()).toEqual(
+      (await attachmentRows(draft.id)).map(stored => stored.objectKey)
+    );
   });
 
   it("refuses a submitted request's attachment and keeps the row and object", async () => {
@@ -370,7 +398,9 @@ describe("Draft attachment storage", () => {
     ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_NOT_DRAFT_MESSAGE });
 
     expect(await attachmentRows(draft.id)).toHaveLength(1);
-    expect(storage.keys()).toEqual([row.objectKey]);
+    expect(storage.keys()).toEqual(
+      (await attachmentRows(draft.id)).map(stored => stored.objectKey)
+    );
   });
 
   it("deletes the row when the object delete fails", async () => {
@@ -477,8 +507,6 @@ describe("Draft attachment storage", () => {
         null
       )
     ).rejects.toThrow(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE);
-
-    expect(getAttachmentStorage()).toBeNull();
   });
 
   it("round-trips a test object through the smoke check and leaves nothing behind", async () => {

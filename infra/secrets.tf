@@ -9,8 +9,8 @@ locals {
     "CRON_TOKEN", # bearer the notification email worker is called with (PTR-55)
     "VITE_SENTRY_DSN",
     "RESEND_API_KEY",
-    # GCS S3-interop HMAC pair for draft supporting documents. Created by hand with
-    # `gcloud storage hmac create`, stored here, never in Terraform state.
+    # Cloudflare R2 API token pair for draft supporting documents. Created by hand in the
+    # Cloudflare dashboard, stored here, never in Terraform state.
     "STORAGE_ACCESS_KEY_ID",
     "STORAGE_SECRET_ACCESS_KEY",
   ]

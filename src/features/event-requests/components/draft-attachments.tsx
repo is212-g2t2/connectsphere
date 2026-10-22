@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -16,11 +16,14 @@ import {
   uploadEventRequestAttachment,
 } from "#/features/event-requests/server-fns";
 import type { EventRequestAttachmentList } from "#/features/event-requests/server-fns";
+import { useMutation } from "#/hooks/use-mutation";
 
 const LOAD_FAILED = "Could not load the attachments. Try again.";
 const UPLOAD_FAILED = "Could not attach this file. Try again.";
 const DOWNLOAD_FAILED = "Could not download this file. Try again.";
 const REMOVE_FAILED = "Could not remove this file. Try again.";
+/** Keep the blob URL alive while the browser starts the transfer. Firefox and Safari need it. */
+const DOWNLOAD_URL_LIFETIME_MS = 60_000;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -28,7 +31,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Decode base64 in slices so a 10 MB file never builds one giant intermediate string. */
+function messageOf(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/** One `atob` call, then a byte copy. */
 function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -38,24 +45,24 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
 
 /**
  * The draft's supporting documents (floor plans, programmes). Lists the organiser's files and
- * uploads and downloads them through server functions. Needs a saved draft id; the new-request
- * page mounts this after the first save. While storage is unconfigured the list still reads
- * and attaching reports unavailable, so the rest of the draft keeps working.
+ * uploads, downloads and removes them through server functions. Needs a saved draft id; the
+ * new-request page mounts this after the first save. While storage is unconfigured the list
+ * still reads and attaching reports unavailable, so the rest of the draft keeps working.
  */
 export function DraftAttachments({ draftId }: { draftId: number }) {
   const [listing, setListing] = useState<EventRequestAttachmentList | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [removingId, setRemovingId] = useState<number | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
       setListing(await listEventRequestAttachments({ data: { id: draftId } }));
+      setLoadError(null);
     } catch (refreshError) {
-      setError(
-        refreshError instanceof Error && refreshError.message ? refreshError.message : LOAD_FAILED
-      );
+      setLoadError(messageOf(refreshError, LOAD_FAILED));
     }
   }, [draftId]);
 
@@ -64,65 +71,37 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
     void refresh();
   }, [refresh]);
 
-  async function handleUpload(file: File | undefined) {
-    if (!file) return;
-    if (file.size > ATTACHMENT_MAX_BYTES) {
-      setError(ATTACHMENT_TOO_LARGE_MESSAGE);
-      return;
-    }
-    setUploading(true);
-    setError(null);
-    try {
-      const form = new FormData();
-      form.set("id", String(draftId));
-      form.set("file", file);
-      await uploadEventRequestAttachment({ data: form });
-      await refresh();
-    } catch (uploadError) {
-      setError(
-        uploadError instanceof Error && uploadError.message ? uploadError.message : UPLOAD_FAILED
-      );
-    } finally {
-      setUploading(false);
-    }
-  }
+  const [uploadState, upload, uploading] = useMutation<File>(async file => {
+    const form = new FormData();
+    form.set("id", String(draftId));
+    form.set("file", file);
+    await uploadEventRequestAttachment({ data: form });
+    await refresh();
+  }, UPLOAD_FAILED);
 
-  async function handleDownload(attachmentId: number) {
-    setDownloadingId(attachmentId);
-    setError(null);
-    try {
-      const { filename, contentType, base64 } = await downloadEventRequestAttachment({
-        data: { id: draftId, attachmentId },
-      });
-      const url = URL.createObjectURL(new Blob([base64ToBytes(base64)], { type: contentType }));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (downloadError) {
-      setError(
-        downloadError instanceof Error && downloadError.message
-          ? downloadError.message
-          : DOWNLOAD_FAILED
-      );
-    } finally {
-      setDownloadingId(null);
-    }
-  }
+  const [downloadState, download, downloading] = useMutation<number>(async attachmentId => {
+    const { filename, contentType, base64 } = await downloadEventRequestAttachment({
+      data: { id: draftId, attachmentId },
+    });
+    const url = URL.createObjectURL(new Blob([base64ToBytes(base64)], { type: contentType }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
+  }, DOWNLOAD_FAILED);
+
+  const [removeState, remove] = useMutation<number>(async attachmentId => {
+    await removeEventRequestAttachment({ data: { id: draftId, attachmentId } });
+    await refresh();
+  }, REMOVE_FAILED);
 
   async function handleRemove(attachmentId: number) {
     setRemovingId(attachmentId);
-    setError(null);
     try {
-      await removeEventRequestAttachment({ data: { id: draftId, attachmentId } });
-      await refresh();
-    } catch (removeError) {
-      setError(
-        removeError instanceof Error && removeError.message ? removeError.message : REMOVE_FAILED
-      );
+      await remove(attachmentId);
     } finally {
       setRemovingId(null);
     }
@@ -130,6 +109,9 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
 
   const attachments = listing?.attachments ?? [];
   const storageAvailable = listing?.storageAvailable ?? true;
+  const atLimit = attachments.length >= ATTACHMENT_MAX_COUNT;
+  const error = fileError ?? uploadState.error ?? downloadState.error ?? removeState.error;
+  const busy = uploading || downloading || removingId !== null;
 
   return (
     <section aria-label="Supporting documents" className="mt-10 border-t border-border pt-6">
@@ -145,30 +127,54 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
         </p>
       )}
 
-      {storageAvailable && (
+      {storageAvailable && !atLimit && (
         <form
           className="mt-4 flex flex-wrap items-end gap-3"
           onSubmit={event => {
             event.preventDefault();
-            const input = event.currentTarget.querySelector('input[type="file"]');
-            const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
+            if (!selectedFile) return;
             void (async () => {
-              await handleUpload(file);
-              if (input instanceof HTMLInputElement) input.value = "";
+              const result = await upload(selectedFile);
+              if (result.status === "success") {
+                setSelectedFile(null);
+                if (fileInput.current) fileInput.current.value = "";
+              }
             })();
           }}
         >
           <Input
+            ref={fileInput}
             type="file"
             accept={ATTACHMENT_ACCEPT}
             aria-label="Choose a file to attach"
             disabled={uploading}
             className="max-w-xs"
+            onChange={event => {
+              const file = event.currentTarget.files?.[0] ?? null;
+              if (file && file.size > ATTACHMENT_MAX_BYTES) {
+                setFileError(ATTACHMENT_TOO_LARGE_MESSAGE);
+                setSelectedFile(null);
+                return;
+              }
+              setFileError(null);
+              setSelectedFile(file);
+            }}
           />
-          <Button type="submit" variant="outline" disabled={uploading}>
+          <Button type="submit" variant="outline" disabled={uploading || !selectedFile}>
             {uploading ? "Attaching…" : "Attach file"}
           </Button>
         </form>
+      )}
+
+      {loadError && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p role="alert" className="body-sm font-medium text-destructive">
+            {loadError}
+          </p>
+          <Button type="button" variant="link" size="sm" onClick={() => void refresh()}>
+            Retry
+          </Button>
+        </div>
       )}
 
       {error && (
@@ -193,16 +199,16 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
                   type="button"
                   variant="link"
                   size="sm"
-                  disabled={downloadingId === attachment.id}
-                  onClick={() => void handleDownload(attachment.id)}
+                  disabled={busy}
+                  onClick={() => void download(attachment.id)}
                 >
-                  {downloadingId === attachment.id ? "Downloading…" : "Download"}
+                  Download
                 </Button>
                 <Button
                   type="button"
                   variant="link"
                   size="sm"
-                  disabled={removingId === attachment.id}
+                  disabled={busy}
                   onClick={() => void handleRemove(attachment.id)}
                 >
                   {removingId === attachment.id ? "Removing…" : "Remove"}
@@ -212,7 +218,7 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
           </ul>
         ))}
 
-      {listing !== null && attachments.length > 0 && (
+      {listing !== null && (
         <p className="mt-2 body-sm text-muted-foreground">
           {attachments.length} of {ATTACHMENT_MAX_COUNT} attachments used.
         </p>

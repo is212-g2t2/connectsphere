@@ -104,6 +104,15 @@ describe("GET /api/smoke", () => {
     expect(mockRunAttachmentSmokeCheck).toHaveBeenCalledExactlyOnceWith(storage);
   });
 
+  it("fails a deployed revision when storage is not configured", async () => {
+    vi.stubEnv("K_SERVICE", "connectsphere-staging");
+
+    await expect(getGetHandler()({ request: smokeRequest("Bearer smoke-token") })).rejects.toThrow(
+      "Attachment storage is not configured."
+    );
+    expect(mockRunAttachmentSmokeCheck).not.toHaveBeenCalled();
+  });
+
   it("fails while the configured bucket is unreachable", async () => {
     mockGetAttachmentStorage.mockReturnValue({ marker: "bucket" });
     mockRunAttachmentSmokeCheck.mockRejectedValue(new Error("bucket down"));
