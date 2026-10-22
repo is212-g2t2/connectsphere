@@ -100,6 +100,7 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
   }, REMOVE_FAILED);
 
   async function handleRemove(attachmentId: number) {
+    setFileError(null);
     setLastAction("remove");
     setRemovingId(attachmentId);
     try {
@@ -142,6 +143,7 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
           onSubmit={event => {
             event.preventDefault();
             if (!selectedFile) return;
+            setFileError(null);
             setLastAction("upload");
             void (async () => {
               const result = await upload(selectedFile);
@@ -212,6 +214,7 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
                   aria-label={`Download ${attachment.originalFilename}`}
                   disabled={downloading}
                   onClick={() => {
+                    setFileError(null);
                     setLastAction("download");
                     void download(attachment.id);
                   }}

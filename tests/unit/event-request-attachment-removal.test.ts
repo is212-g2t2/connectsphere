@@ -108,7 +108,11 @@ function stubDraftDatabase(
     delete: () => ({ where: deleteWhere }),
   };
   const transaction = vi.fn<(run: (value: typeof tx) => Promise<unknown>) => Promise<unknown>>(
-    async run => run(tx)
+    async run => {
+      const result = await run(tx);
+      calls.push("commit");
+      return result;
+    }
   );
   return {
     database: { transaction },
@@ -257,7 +261,8 @@ describe("handleDeleteEventRequestDraft attachment cleanup", () => {
 
     expect(deleted).toEqual({ id: 41 });
     expect(calls[0]).toBe("delete");
-    expect(calls.slice(1).toSorted()).toEqual(["remove:a", "remove:b"]);
+    expect(calls[1]).toBe("commit");
+    expect(calls.slice(2).toSorted()).toEqual(["remove:a", "remove:b"]);
     expect(mockWarn).not.toHaveBeenCalled();
   });
 

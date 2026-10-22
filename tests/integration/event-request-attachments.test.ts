@@ -63,6 +63,17 @@ function pdfBytes(extra = ""): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.4 attachment${extra}`);
 }
 
+/** A store whose object delete fails, to prove the row action still succeeds. */
+function failingStorage() {
+  return {
+    put: async () => {},
+    get: async () => null,
+    remove: async () => {
+      throw new Error("bucket down");
+    },
+  };
+}
+
 const completeDraft = {
   eventName: "Community workshop",
   purpose: "Meet neighbours",
@@ -362,7 +373,7 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
 
   it("removes an owned attachment's row and object, then reads it as gone", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "old.pdf", bytes: pdfBytes() },
       organiser,
@@ -380,7 +391,7 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
     ).resolves.toBeUndefined();
 
     expect(await attachmentRows(draft.id)).toEqual([]);
-    expect(storage.keys()).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
 
     await expect(
       handleRemoveEventRequestAttachment(
@@ -394,7 +405,7 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
 
   it("reads another organiser's attachment as gone and keeps the row and object", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "mine.pdf", bytes: pdfBytes() },
       organiser,
@@ -412,14 +423,14 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
     ).rejects.toMatchObject({ name: "NotFoundError" });
 
     expect(await attachmentRows(draft.id)).toHaveLength(1);
-    expect(storage.keys()).toEqual(
+    expect(await liveKeys()).toEqual(
       (await attachmentRows(draft.id)).map(stored => stored.objectKey)
     );
   });
 
   it("refuses a submitted request's attachment and keeps the row and object", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage, liveKeys } = testStorage();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "plan.pdf", bytes: pdfBytes() },
       organiser,
@@ -438,34 +449,28 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
     ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_NOT_DRAFT_MESSAGE });
 
     expect(await attachmentRows(draft.id)).toHaveLength(1);
-    expect(storage.keys()).toEqual(
+    expect(await liveKeys()).toEqual(
       (await attachmentRows(draft.id)).map(stored => stored.objectKey)
     );
   });
 
   it("deletes the row when the object delete fails", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage } = testStorage();
     const row = await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "plan.pdf", bytes: pdfBytes() },
       organiser,
       database as never,
       storage
     );
-    const failingStorage = {
-      put: async () => {},
-      get: async () => null,
-      remove: async () => {
-        throw new Error("bucket down");
-      },
-    };
+    const failing = failingStorage();
 
     await expect(
       handleRemoveEventRequestAttachment(
         { id: draft.id, attachmentId: row.id },
         organiser,
         database as never,
-        failingStorage
+        failing
       )
     ).resolves.toBeUndefined();
 
@@ -474,18 +479,19 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
 
   it("deletes the draft's objects with the draft", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
-    // Each upload locks the same draft row, so these uploads run in order.
-    // oxlint-disable no-await-in-loop
-    for (const name of ["a.pdf", "b.pdf"]) {
-      await handleUploadEventRequestAttachment(
-        { eventRequestId: draft.id, filename: name, bytes: pdfBytes(name) },
-        organiser,
-        database as never,
-        storage
-      );
-    }
-    // oxlint-enable no-await-in-loop
+    const { storage, liveKeys } = testStorage();
+    await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "a.pdf", bytes: pdfBytes("a") },
+      organiser,
+      database as never,
+      storage
+    );
+    await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "b.pdf", bytes: pdfBytes("b") },
+      organiser,
+      database as never,
+      storage
+    );
 
     const deleted = await handleDeleteEventRequestDraft(
       { id: draft.id },
@@ -496,31 +502,25 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
 
     expect(deleted.id).toBe(draft.id);
     expect(await attachmentRows(draft.id)).toEqual([]);
-    expect(storage.keys()).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
   });
 
   it("still deletes the draft when an object delete fails", async () => {
     const draft = await draftOwnedBy(organiser, database);
-    const storage = new MemoryAttachmentStorage();
+    const { storage } = testStorage();
     await handleUploadEventRequestAttachment(
       { eventRequestId: draft.id, filename: "plan.pdf", bytes: pdfBytes() },
       organiser,
       database as never,
       storage
     );
-    const failingStorage = {
-      put: async () => {},
-      get: async () => null,
-      remove: async () => {
-        throw new Error("bucket down");
-      },
-    };
+    const failing = failingStorage();
 
     const deleted = await handleDeleteEventRequestDraft(
       { id: draft.id },
       organiser,
       database as never,
-      failingStorage
+      failing
     );
 
     expect(deleted.id).toBe(draft.id);
