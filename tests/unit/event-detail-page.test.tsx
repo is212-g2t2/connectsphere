@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { EventProjection } from "#/features/events/access";
 import type { EventPageData } from "#/features/events/page-data";
@@ -22,6 +22,11 @@ vi.mock("#/features/events/server-fns", () => ({
   registerForEvent: vi.fn<() => Promise<unknown>>(),
   withdrawFromEvent: vi.fn<() => Promise<unknown>>(),
 }));
+
+// Load the staff module before tests start so its first transform uses the hook timeout.
+beforeAll(async () => {
+  await import("#/features/events/components/event-staff-page");
+}, 30_000);
 
 function projection(
   access: EventProjection["access"],
@@ -113,10 +118,8 @@ describe("EventDetailPage", () => {
       "/dashboard"
     );
 
-    // The sections arrive in a second chunk behind the sync header. Wait for one before
-    // reading the section anchors. The first wait also pays the chunk's transform, so allow
-    // for a loaded worker.
-    await screen.findByRole("heading", { name: "Registrations" }, { timeout: 5000 });
+    // Wait for the sections behind the header before reading their anchors.
+    await screen.findByRole("heading", { name: "Registrations" });
     for (const id of ["venue", "registrations", "equipment", "requests", "details"]) {
       expect(container.querySelector(`#${id}`)).toBeTruthy();
     }

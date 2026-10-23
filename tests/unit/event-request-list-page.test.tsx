@@ -10,13 +10,16 @@ import {
 } from "#/features/event-requests/components/request-list-page";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
-const { deleteEventRequestDraft, invalidate } = vi.hoisted(() => ({
+const { deleteEventRequestDraft, invalidate, navigate, reuseEventRequest } = vi.hoisted(() => ({
   deleteEventRequestDraft: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
+  navigate: vi.fn<(options: unknown) => Promise<void>>(),
+  reuseEventRequest: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
 }));
 
 vi.mock("#/features/event-requests/server-fns", () => ({
   deleteEventRequestDraft,
+  reuseEventRequest,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -47,6 +50,8 @@ vi.mock("@tanstack/react-router", () => ({
     navigate: vi.fn<() => void>(),
     invalidate,
   }),
+
+  useNavigate: () => navigate,
 }));
 
 const base: EventRequestDetail = {
@@ -127,6 +132,16 @@ const submitted: EventRequestDetail = {
   registrationCapacity: 100,
   registrationOpensAt: "2030-11-01T09:00",
   registrationClosesAt: "2030-11-20T17:00",
+};
+
+/** A submitted request whose event end has passed, so the server accepts a reuse. */
+const pastSubmitted: EventRequestDetail = {
+  ...submitted,
+  id: 44,
+  eventName: "Last year's dinner",
+  proposedDates: [{ start: "2020-12-01T18:00", end: "2020-12-01T22:00" }],
+  registrationOpensAt: "2020-11-01T09:00",
+  registrationClosesAt: "2020-11-20T17:00",
 };
 
 describe("EventRequestListPage (PTR-14)", () => {
@@ -235,5 +250,74 @@ describe("EventRequestListPage draft actions (PTR-12)", () => {
     );
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
     expect(screen.queryByText("Delete this draft?")).toBeNull();
+  });
+});
+
+describe("EventRequestListPage reuse action (PTR-154)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    navigate.mockResolvedValue(undefined);
+  });
+
+  it("offers Reuse only when the server would accept it (AC1)", () => {
+    render(<EventRequestListPage requests={[pastSubmitted, submitted, draft]} />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(
+      within(rows[0]).getByRole("button", { name: "Reuse Last year's dinner as a new draft" })
+    ).toBeTruthy();
+    expect(within(rows[1]).queryByRole("button", { name: /as a new draft$/ })).toBeNull();
+    expect(within(rows[2]).queryByRole("button", { name: /as a new draft$/ })).toBeNull();
+  });
+
+  it("starts a new draft and opens it for editing (AC1, AC2)", async () => {
+    reuseEventRequest.mockResolvedValue({ id: 77 });
+    render(<EventRequestListPage requests={[pastSubmitted]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /as a new draft$/ }));
+
+    await waitFor(() =>
+      expect(reuseEventRequest).toHaveBeenCalledExactlyOnceWith({ data: { id: 44 } })
+    );
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledExactlyOnceWith({
+        to: "/event-requests/reopenDraft/$id",
+        params: { id: "77" },
+      })
+    );
+  });
+
+  it("marks only the clicked row while the reuse runs", async () => {
+    let resolveReuse!: (value: unknown) => void;
+    reuseEventRequest.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveReuse = resolve;
+        })
+    );
+    const other = { ...pastSubmitted, id: 45, eventName: "Other past event" };
+    render(<EventRequestListPage requests={[pastSubmitted, other]} />);
+
+    await userEvent.setup().click(screen.getAllByRole("button", { name: /as a new draft$/ })[0]);
+
+    expect(await screen.findByText("Reusing…")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Reuse Other past event as a new draft" })
+        .getAttribute("disabled")
+    ).not.toBeNull();
+
+    resolveReuse({ id: 77 });
+    await waitFor(() => expect(navigate).toHaveBeenCalled());
+  });
+
+  it("shows the refusal when a race makes the server reject the reuse", async () => {
+    reuseEventRequest.mockRejectedValue(new Error("Only a completed request"));
+    render(<EventRequestListPage requests={[pastSubmitted]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /as a new draft$/ }));
+
+    await waitFor(() => expect(screen.getByText("Only a completed request")).toBeTruthy());
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

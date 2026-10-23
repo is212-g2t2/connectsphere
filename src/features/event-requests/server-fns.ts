@@ -168,6 +168,30 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
 export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;
 
 /**
+ * PTR-154: Copy one of the Organiser's past requests into a new draft. The handler scopes the
+ * source to the organiser and refuses a request that is not completed or past-dated.
+ */
+export const reuseEventRequest = createServerFn({ method: "POST" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReuseEventRequest }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/drafts.server"),
+    ]);
+
+    const draft = await handleReuseEventRequest(data, context.user, db);
+
+    log.info("Event request reused", {
+      requestId: draft.id,
+      reusedRequestId: data.id,
+      organiserId: context.user.id,
+    });
+
+    return draft;
+  });
+
+/**
  * Supporting documents on an Organiser's draft. The client sends the draft id and the file as
  * `FormData` (multipart); the validator reads the id through Zod and the handler checks the
  * bytes. Uploads buffer the whole body per request (10 MB limit); downloads return base64 so

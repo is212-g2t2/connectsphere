@@ -460,6 +460,14 @@ export function isActiveEventRequest(status: EventRequestStatus): boolean {
   return !INACTIVE_EVENT_REQUEST_STATUSES.some(inactive => inactive === status);
 }
 
+/**
+ * PTR-154: only a past request starts a new draft. The request must not be a draft, and it
+ * must be completed or its event end must have passed. `eventEndHasPassed` comes from the
+ * proposed end (the same end the completion gate reads), so the two rules cannot disagree.
+ */
+export const EVENT_REQUEST_REUSE_REFUSAL =
+  "Only a completed request, or one whose event date has passed, can start a new draft.";
+
 export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
 
 // ── Processing a change request (PTR-52) ────────────────────────────────────

@@ -23,12 +23,14 @@ import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
+  EVENT_REQUEST_REUSE_REFUSAL,
   SUBMITTED_EDIT_REFUSAL,
   missingFieldsMessage,
   missingRequiredFields,
   parseDraftInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
+import { isReusableEventRequest } from "#/features/event-requests/reuse";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
@@ -351,4 +353,51 @@ export async function handleDeleteEventRequestDraft(
   await removeAttachmentObjects(storage, objectKeys);
 
   return deleted;
+}
+
+/**
+ * PTR-154: Copy the Organiser's past request into a new draft. Copy the repeatable details
+ * (AC1) and leave dates, registration, and every decided or arranged value behind (AC2).
+ * Insert a new row, so the source row stays unchanged (AC4). Refuse another Organiser's row
+ * like the other readers do (AC3), and refuse a request that is not past with 409.
+ */
+export async function handleReuseEventRequest(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+): Promise<EventRequest> {
+  const { id } = parseEventRequestId(data);
+
+  const rows = await database.select().from(eventRequests).where(ownRequest(id, user.id));
+  const source = rows.at(0);
+  if (!source) throw new AuthorizationError("Forbidden");
+
+  if (!isReusableEventRequest(source)) {
+    throw new ConflictError(EVENT_REQUEST_REUSE_REFUSAL);
+  }
+
+  const [draft] = await database
+    .insert(eventRequests)
+    .values({
+      organiserId: user.id,
+      status: "draft",
+      eventName: source.eventName,
+      purpose: source.purpose,
+      proposedDates: [],
+      expectedAttendance: source.expectedAttendance,
+      description: source.description,
+      eventType: "",
+      venueRequirements: source.venueRequirements,
+      roomLayoutPreference: source.roomLayoutPreference,
+      accessibilityRequirements: source.accessibilityRequirements,
+      equipmentRequirements: source.equipmentRequirements,
+      specialArrangements: "",
+      registrationEnabled: false,
+      registrationCapacity: null,
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+    })
+    .returning();
+
+  return draft;
 }
