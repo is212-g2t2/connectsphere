@@ -61,6 +61,10 @@ const completeDraft = {
   purpose: "Meet neighbours",
   proposedDates: [{ start: "2026-10-12T14:30", end: "2026-10-12T18:45" }],
   expectedAttendance: 25,
+  description: "Bring your own lunch",
+  venueRequirements: "Ground floor, near MRT",
+  roomLayoutPreference: "U-shape",
+  accessibilityRequirements: "Step-free access",
 };
 
 describe("Event attachment allow-list", () => {

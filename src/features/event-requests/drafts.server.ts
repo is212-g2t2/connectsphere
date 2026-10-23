@@ -183,7 +183,7 @@ export async function handleSubmitEventRequest(
       throw new ConflictError(ALREADY_SUBMITTED_MESSAGE);
     }
 
-    const missing = missingRequiredFields(draft);
+    const missing = missingRequiredFields(draft, { requireListedDetails: true });
     if (missing.length > 0) {
       throw new Error(missingFieldsMessage(missing));
     }

@@ -167,6 +167,27 @@ describe("ClarificationReplyForm", () => {
     expect(replyToClarification).not.toHaveBeenCalled();
   });
 
+  it("refuses a cleared required detail at its own control", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ClarificationReplyForm
+        requestId={7}
+        clarification={{ id: 14, permittedFields: ["description"] }}
+        initialValues={{ ...initialValues, description: "Bring your own lunch" }}
+      />
+    );
+
+    const description = screen.getByLabelText("Description (required)");
+    await user.clear(description);
+    await user.type(screen.getByLabelText("Your reply (required)"), "No lunch needed.");
+    await user.click(screen.getByRole("button", { name: "Send reply" }));
+
+    expect(description.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toBe("Description is required");
+    expect(replyToClarification).not.toHaveBeenCalled();
+  });
+
   it("does not refuse a locked required field the Coordinator did not permit", async () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({

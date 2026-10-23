@@ -500,7 +500,15 @@ describe("Event request drafts", () => {
     await expect(
       handleSubmitEventRequest({ id: draft.id }, organiser, database as never)
     ).rejects.toThrow(
-      missingFieldsMessage(["Purpose", "Proposed dates and times", "Expected attendance"])
+      missingFieldsMessage([
+        "Purpose",
+        "Proposed dates and times",
+        "Expected attendance",
+        "Description",
+        "Venue requirements",
+        "Room-layout preference",
+        "Accessibility requirements",
+      ])
     );
 
     expect(await findById(draft.id)).toMatchObject({

@@ -331,18 +331,38 @@ export function parseEventChangeRequestInput(data: unknown) {
 }
 
 /**
- * Check the saved request for required PTR-10 fields. Drafts can omit fields (PTR-9), so only the
- * submission path calls this. PTR-13 refuses a request when this list is not empty. Report all
- * incomplete equipment as one item because each partial line has the same issue. Accept `null`
- * attendance because the database uses it for an absent value.
+ * PTR-155: the listed details that submission requires. A draft may leave them blank, and a
+ * reply to a request created before this rule must not be blocked by them.
  */
-export function missingRequiredFields(values: {
-  eventName: string;
-  purpose: string;
-  proposedDates: { start?: string; end?: string }[];
-  expectedAttendance?: number | null;
-  equipmentRequirements: { type: string; quantity?: number }[];
-}): string[] {
+export const LISTED_DETAIL_FIELDS = [
+  ["description", "Description"],
+  ["venueRequirements", "Venue requirements"],
+  ["roomLayoutPreference", "Room-layout preference"],
+  ["accessibilityRequirements", "Accessibility requirements"],
+] as const;
+
+/**
+ * Check the saved request for required PTR-10 fields. Drafts can omit fields (PTR-9), so only the
+ * submission path calls this with `requireListedDetails`. PTR-13 refuses a request when this list
+ * is not empty. Report all incomplete equipment as one item because each partial line has the same
+ * issue. Accept `null` attendance because the database uses it for an absent value. PTR-155 also
+ * requires the listed details at submission (the Organiser may enter "None" for no needs);
+ * registration stays optional.
+ */
+export function missingRequiredFields(
+  values: {
+    eventName: string;
+    purpose: string;
+    proposedDates: { start?: string; end?: string }[];
+    expectedAttendance?: number | null;
+    description: string;
+    venueRequirements: string;
+    roomLayoutPreference: string;
+    accessibilityRequirements: string;
+    equipmentRequirements: { type: string; quantity?: number }[];
+  },
+  options: { requireListedDetails?: boolean } = {}
+): string[] {
   const missing: string[] = [];
 
   if (values.eventName.trim() === "") missing.push("Event name");
@@ -355,6 +375,11 @@ export function missingRequiredFields(values: {
   }
   if (values.expectedAttendance === undefined || values.expectedAttendance === null) {
     missing.push("Expected attendance");
+  }
+  if (options.requireListedDetails) {
+    for (const [key, label] of LISTED_DETAIL_FIELDS) {
+      if (values[key].trim() === "") missing.push(label);
+    }
   }
   // PTR-10 criterion 2: Each added line needs both a type and a quantity. Saves allow half-written lines; submission does not.
   if (
