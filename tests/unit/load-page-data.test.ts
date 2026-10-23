@@ -11,6 +11,7 @@ const {
   mockListCoordinators,
   mockGetPendingVenueRequestsForEvent,
   mockListVenueOptions,
+  mockListRoomLayouts,
   mockListEquipmentTypes,
   mockWarn,
   mockInfo,
@@ -23,6 +24,7 @@ const {
   mockListCoordinators: vi.fn<() => Promise<unknown[]>>(),
   mockGetPendingVenueRequestsForEvent: vi.fn<() => Promise<unknown>>(),
   mockListVenueOptions: vi.fn<() => Promise<unknown[]>>(),
+  mockListRoomLayouts: vi.fn<() => Promise<unknown[]>>(),
   mockListEquipmentTypes: vi.fn<() => Promise<unknown>>(),
   mockWarn: vi.fn<(...args: unknown[]) => void>(),
   mockInfo: vi.fn<(...args: unknown[]) => void>(),
@@ -45,6 +47,7 @@ vi.mock("#/features/venue-requests/server-fns", () => ({
 }));
 vi.mock("#/features/venues/server-fns", () => ({
   listVenueOptions: mockListVenueOptions,
+  listRoomLayouts: mockListRoomLayouts,
 }));
 vi.mock("#/features/equipment-requests/server-fns", () => ({
   listEquipmentTypes: mockListEquipmentTypes,
@@ -87,12 +90,14 @@ beforeEach(() => {
     mockListCoordinators,
     mockGetPendingVenueRequestsForEvent,
     mockListVenueOptions,
+    mockListRoomLayouts,
     mockListEquipmentTypes,
   ]) {
     mock.mockReset();
   }
   mockWarn.mockReset();
   mockInfo.mockReset();
+  mockListRoomLayouts.mockResolvedValue([]);
 });
 
 describe("loadEventPageData", () => {
@@ -261,9 +266,11 @@ describe("loadEventPageData", () => {
     });
     const requests = [{ id: "vr-1" }, { id: "vr-3" }];
     const venues = [{ id: 3, name: "Hall A" }];
+    const layouts = [{ key: "theatre", label: "Theatre" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequestsForEvent.mockResolvedValue(requests);
     mockListVenueOptions.mockResolvedValue(venues);
+    mockListRoomLayouts.mockResolvedValue(layouts);
 
     const data = await loadEventPageData(7, "venue_staff");
 
@@ -271,10 +278,27 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       venueDecisions: { requests, venues },
+      layouts,
     });
     expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledOnce();
     expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledWith({ data: { eventId: 7 } });
     expect(mockListVenueOptions).toHaveBeenCalledOnce();
+  });
+
+  it("leaves layouts unset when the layout read fails, and still loads the decisions", async () => {
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
+    mockListEvents.mockResolvedValue([event]);
+    mockGetPendingVenueRequestsForEvent.mockResolvedValue([{ id: "vr-1" }]);
+    mockListVenueOptions.mockResolvedValue([]);
+    mockListRoomLayouts.mockRejectedValue(new Error("layout store down"));
+
+    const data = await loadEventPageData(7, "venue_staff");
+
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
+    });
   });
 
   it("offers no venue options to staff without the decide permission", async () => {
@@ -290,6 +314,7 @@ describe("loadEventPageData", () => {
       venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
     });
     expect(mockListVenueOptions).not.toHaveBeenCalled();
+    expect(mockListRoomLayouts).not.toHaveBeenCalled();
   });
 
   it("skips the decision fetch once no request is pending", async () => {
@@ -329,6 +354,7 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       venueDecisions: { requests: [], venues: [] },
+      layouts: [],
     });
     expect(mockWarn).not.toHaveBeenCalled();
   });
@@ -341,7 +367,7 @@ describe("loadEventPageData", () => {
 
     const data = await loadEventPageData(7, "venue_staff");
 
-    expect(data).toEqual({ kind: "event", event });
+    expect(data).toEqual({ kind: "event", event, layouts: [] });
     expect(mockWarn).toHaveBeenCalledOnce();
   });
 

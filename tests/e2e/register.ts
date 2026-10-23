@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/node-postgres";
 
 import * as schema from "../../src/db/schema";
+import { E2E_BASE_URL } from "./base-url";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -35,11 +36,11 @@ export async function registerAccount(
       .set({ role: options.role })
       .where(eq(schema.user.id, account.id));
     const logout = await page.request.post("/api/auth/sign-out", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
     });
     expect(logout.ok(), await logout.text()).toBe(true);
     const login = await page.request.post("/api/auth/sign-in/email", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
       data: { email, password: options.password },
     });
     expect(login.ok(), await login.text()).toBe(true);

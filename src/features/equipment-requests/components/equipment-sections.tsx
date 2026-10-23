@@ -8,6 +8,7 @@ import { EquipmentPanel } from "#/features/equipment-requests/components/equipme
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection } from "#/features/events/access";
+import { isArrangedLine } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 
 /** Events can have equipment lines to arrange from the venue-settled stage onward. */
@@ -94,6 +95,7 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
   if (data.event.access === "technical_support") {
     const { event } = data.event;
     const lines = event.equipment ?? [];
+    const arranged = lines.filter(line => isArrangedLine(line.arrangementStatus)).length;
     return [
       {
         id: "lines",
@@ -102,27 +104,14 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
         render: () => (
           <div>
             <h2 className="display-h3">Equipment lines</h2>
+            <p className="mt-2 body-sm text-muted-foreground">
+              {arranged} of {lines.length} lines arranged
+            </p>
             <div className="mt-4">
               <ArrangementLines
                 eventId={event.id}
                 lines={lines}
                 bookings={event.equipmentBookings ?? []}
-              />
-            </div>
-          </div>
-        ),
-      },
-      {
-        id: "arrangements",
-        label: "Technical arrangements",
-        visible: alwaysVisible,
-        render: () => (
-          <div>
-            <h2 className="display-h3">Technical arrangements</h2>
-            <div className="mt-3">
-              <ArrangementsCompletion
-                eventId={event.id}
-                completedAt={event.equipmentArrangementsCompletedAt ?? null}
               />
             </div>
           </div>
@@ -140,6 +129,22 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
                 eventId={event.id}
                 bookings={event.equipmentBookings ?? []}
                 equipmentTypes={body.kind === "event" ? (body.equipmentTypes ?? null) : null}
+              />
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "arrangements",
+        label: "Technical arrangements",
+        visible: alwaysVisible,
+        render: () => (
+          <div>
+            <h2 className="display-h3">Technical arrangements</h2>
+            <div className="mt-3">
+              <ArrangementsCompletion
+                eventId={event.id}
+                completedAt={event.equipmentArrangementsCompletedAt ?? null}
               />
             </div>
           </div>

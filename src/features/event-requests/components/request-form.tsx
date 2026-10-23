@@ -3,6 +3,7 @@ import { standardSchemaValidators, useForm } from "@tanstack/react-form";
 import { Trash2Icon } from "lucide-react";
 
 import { Button } from "#/components/ui/button";
+import { IconAction } from "#/components/ui/icon-action";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
   Field,
@@ -13,6 +14,12 @@ import {
   FieldLegend,
   FieldSet,
 } from "#/components/ui/field";
+import {
+  FormErrorSummary,
+  StickyFormActions,
+  collectFormErrors,
+  focusFirstInvalid,
+} from "#/components/ui/form-actions";
 import { Input } from "#/components/ui/input";
 import {
   Select,
@@ -407,19 +414,19 @@ function SelectControl({
 const REGISTRATION_FIELDS = [
   {
     name: "registrationCapacity",
-    label: "Registration capacity (required)",
+    label: "Registration capacity",
     type: "number",
     min: "1",
     step: "1",
   },
   {
     name: "registrationOpensAt",
-    label: "Registration opens (required)",
+    label: "Registration opens",
     type: "datetime-local",
   },
   {
     name: "registrationClosesAt",
-    label: "Registration closes (required)",
+    label: "Registration closes",
     type: "datetime-local",
   },
 ] as const;
@@ -560,6 +567,44 @@ function missingFieldErrors(
 }
 
 /**
+ * The human label for one submitted field, so the error summary can name it. Fields stay
+ * unmarked when required and carry "(optional)" when optional; the summary uses the bare label.
+ */
+const SUMMARY_LABELS: Record<string, string> = {
+  eventName: "Event name",
+  purpose: "Purpose",
+  eventType: "Type of event",
+  expectedAttendance: "Expected attendance",
+  description: "Description",
+  proposedDates: "Proposed dates and times",
+  venueRequirements: "Venue requirements",
+  roomLayoutPreference: "Room-layout preference",
+  accessibilityRequirements: "Accessibility requirements",
+  specialArrangements: "Special arrangements",
+  attendeeRegistration: "Attendee registration",
+  equipmentRequirements: "Equipment requirements",
+  registrationCapacity: "Registration capacity",
+  registrationOpensAt: "Registration opens",
+  registrationClosesAt: "Registration closes",
+};
+
+/**
+ * Name one submitted field by its input and label, so the error summary can link to it. Name a
+ * nested path by its top field, and the reply body by its label.
+ */
+function requestFieldTarget(
+  name: string,
+  fieldIdFor: (name: string) => string,
+  replyLabel?: string
+): { fieldId: string; label: string } {
+  const top = name.replace(/\[.*$/, "");
+  return {
+    fieldId: fieldIdFor(name),
+    label: top === "replyBody" ? (replyLabel ?? "Reply") : (SUMMARY_LABELS[top] ?? top),
+  };
+}
+
+/**
  * Validate the form with the draft schema. The library maps each issue path, such as
  * `proposedDates[0].end`, to its field. Validate the reply body at its own field, so this validator
  * accepts `replyBody` without repeating the draft schema.
@@ -645,6 +690,9 @@ export function EventRequestForm({
   // Keep these values for this mount. `isDefaultValue` compares against them; rebuilding them after
   // a parent render would mark untouched fields as changed. Remount with a new `key` to load new values.
   const [defaultValues] = useState(() => toDefaultFormValues(initialValues));
+  const replyBodyLabel = replyBody?.label;
+  const collectErrors = (fieldMeta: Record<string, { errors?: readonly unknown[] } | undefined>) =>
+    collectFormErrors(fieldMeta, name => requestFieldTarget(name, inputId, replyBodyLabel));
   const form = useForm({
     defaultValues,
     validators: {
@@ -671,13 +719,21 @@ export function EventRequestForm({
         });
       }
     },
+    // On a refused submit, move focus to the first field the schema marked, in form order.
+    onSubmitInvalid: ({ formApi }) => {
+      focusFirstInvalid(
+        collectFormErrors(formApi.state.fieldMeta, name =>
+          requestFieldTarget(name, inputId, replyBodyLabel)
+        )
+      );
+    },
   });
 
   const renderEventName = () => (
     <form.Field name="eventName">
       {field => (
         <Field data-invalid={field.state.meta.errors.length > 0}>
-          <FieldLabel htmlFor={inputId(field.name)}>Event name (required)</FieldLabel>
+          <FieldLabel htmlFor={inputId(field.name)}>Event name</FieldLabel>
           <Input
             id={inputId(field.name)}
             required
@@ -697,7 +753,7 @@ export function EventRequestForm({
     <form.Field name="purpose">
       {field => (
         <Field data-invalid={field.state.meta.errors.length > 0}>
-          <FieldLabel htmlFor={inputId(field.name)}>Purpose (required)</FieldLabel>
+          <FieldLabel htmlFor={inputId(field.name)}>Purpose</FieldLabel>
           <Textarea
             id={inputId(field.name)}
             required
@@ -718,7 +774,7 @@ export function EventRequestForm({
       {field => (
         <div className="border-t border-border pt-6">
           <FieldSet>
-            <FieldLegend>Proposed dates and times (required)</FieldLegend>
+            <FieldLegend>Proposed dates and times</FieldLegend>
             <FieldDescription>
               Enter each proposed window in local time. An end must be later than its start.
             </FieldDescription>
@@ -729,7 +785,7 @@ export function EventRequestForm({
                     {boundaryField => (
                       <Field data-invalid={boundaryField.state.meta.errors.length > 0}>
                         <FieldLabel htmlFor={inputId(boundaryField.name)}>
-                          Proposed {boundary} {index + 1} (required)
+                          Proposed {boundary} {index + 1}
                         </FieldLabel>
                         <Input
                           id={inputId(boundaryField.name)}
@@ -778,7 +834,7 @@ export function EventRequestForm({
     <form.Field name="expectedAttendance">
       {field => (
         <Field data-invalid={field.state.meta.errors.length > 0}>
-          <FieldLabel htmlFor={inputId(field.name)}>Expected attendance (required)</FieldLabel>
+          <FieldLabel htmlFor={inputId(field.name)}>Expected attendance</FieldLabel>
           <Input
             id={inputId(field.name)}
             type="number"
@@ -816,8 +872,7 @@ export function EventRequestForm({
               <FieldLabel htmlFor={inputId(field.name)}>Require attendee registration</FieldLabel>
             </Field>
             <FieldDescription>
-              Registered attendees sign up between these times, up to this capacity. Turning
-              registration off saves no terms.
+              Attendees can register between the dates below, up to the capacity.
             </FieldDescription>
           </div>
 
@@ -855,7 +910,7 @@ export function EventRequestForm({
       {field => {
         const id = inputId(field.name);
         const invalid = field.state.meta.errors.length > 0;
-        const label = `${metadata.label} (${metadata.required ? "required" : "optional"})`;
+        const label = `${metadata.label}${metadata.required ? "" : " (optional)"}`;
         const description = metadata.description !== undefined && (
           <FieldDescription>{metadata.description}</FieldDescription>
         );
@@ -951,16 +1006,13 @@ export function EventRequestForm({
                     )}
                   </form.Field>
                 ))}
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="outline"
-                  aria-label={`Remove equipment ${index + 1}`}
+                <IconAction
+                  label={`Remove equipment ${index + 1}`}
+                  icon={<Trash2Icon />}
+                  tone="danger"
                   disabled={!editable("equipmentRequirements")}
                   onClick={() => field.removeValue(index)}
-                >
-                  <Trash2Icon />
-                </Button>
+                />
               </div>
             ))}
             <Button
@@ -1009,7 +1061,6 @@ export function EventRequestForm({
     { key: "equipmentRequirements", render: renderEquipment },
   ];
 
-  const replyBodyLabel = replyBody?.label;
   const replyBodyField = replyBodyLabel !== undefined && (
     <form.Field
       name="replyBody"
@@ -1022,7 +1073,7 @@ export function EventRequestForm({
     >
       {field => (
         <Field data-invalid={field.state.meta.errors.length > 0}>
-          <FieldLabel htmlFor={inputId("replyBody")}>{replyBodyLabel} (required)</FieldLabel>
+          <FieldLabel htmlFor={inputId("replyBody")}>{replyBodyLabel}</FieldLabel>
           <Textarea
             id={inputId("replyBody")}
             className="mt-2"
@@ -1055,23 +1106,19 @@ export function EventRequestForm({
     </form.Subscribe>
   );
 
+  const errorSummary = (
+    <form.Subscribe selector={state => state.fieldMeta}>
+      {fieldMeta => <FormErrorSummary errors={collectErrors(fieldMeta)} />}
+    </form.Subscribe>
+  );
+
   const actionRow = (
     <form.Subscribe selector={state => state.isSubmitting}>
       {isSubmitting => (
-        <div className="flex flex-wrap gap-3 border-t border-border pt-6">
-          <Button
-            type="submit"
-            disabled={isSubmitting || disabled}
-            onClick={() => {
-              intent.current = "save";
-            }}
-          >
-            {isSubmitting && intent.current === "save" ? busyLabel : saveLabel}
-          </Button>
+        <StickyFormActions>
           {onSubmitRequest && (
             <Button
               type="button"
-              variant="outline"
               disabled={isSubmitting || disabled}
               onClick={() => {
                 intent.current = "submit";
@@ -1081,7 +1128,17 @@ export function EventRequestForm({
               {isSubmitting && intent.current === "submit" ? "Submitting…" : "Submit request"}
             </Button>
           )}
-        </div>
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={isSubmitting || disabled}
+            onClick={() => {
+              intent.current = "save";
+            }}
+          >
+            {isSubmitting && intent.current === "save" ? busyLabel : saveLabel}
+          </Button>
+        </StickyFormActions>
       )}
     </form.Subscribe>
   );
@@ -1110,6 +1167,7 @@ export function EventRequestForm({
               <Fragment key={field.key}>{field.render()}</Fragment>
             ))}
           {formError}
+          {errorSummary}
           {actionRow}
           <details className="border-t border-border pt-6">
             <summary className="cursor-pointer font-medium">
@@ -1133,8 +1191,8 @@ export function EventRequestForm({
       {dirtyReporter}
       <p className="mb-4 body-sm text-muted-foreground">
         {mustBeComplete
-          ? "Fields marked required must stay complete."
-          : "Fields marked required must be completed before you submit. A draft can keep them blank; submitting needs them filled."}
+          ? "Every field is required unless marked optional. Required values must stay complete."
+          : "Every field is required unless marked optional. A draft can keep fields blank; submitting needs them filled."}
       </p>
 
       <FieldGroup>
@@ -1178,6 +1236,8 @@ export function EventRequestForm({
         {renderEquipment()}
 
         {formError}
+
+        {errorSummary}
 
         {actionRow}
       </FieldGroup>

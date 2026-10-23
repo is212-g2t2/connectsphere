@@ -13,7 +13,7 @@ import type { EventPageData } from "#/features/events/page-data";
 import { listEventRegistrations, listEvents } from "#/features/events/server-fns";
 import { getEventSafetyReview } from "#/features/safety-reviews/server-fns";
 import { getPendingVenueRequestsForEvent } from "#/features/venue-requests/server-fns";
-import { listVenueOptions } from "#/features/venues/server-fns";
+import { listRoomLayouts, listVenueOptions } from "#/features/venues/server-fns";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("event-page");
@@ -103,7 +103,7 @@ export async function loadEventPageData(
         entry => entry.status === "pending"
       );
       if (!hasPending) return { kind: "event", event: projection };
-      const [requests, venues] = await Promise.all([
+      const [requests, venues, layouts] = await Promise.all([
         getPendingVenueRequestsForEvent({ data: { eventId } }).catch((error: unknown) => {
           log.warn("Venue decision read failed", {
             eventId,
@@ -113,11 +113,17 @@ export async function loadEventPageData(
         }),
         // Offer a suggested venue only to a role that may decide, as the detail route did.
         can(role, { venue_request: ["decide"] }) ? listVenueOptions() : Promise.resolve([]),
+        // Thread the maintained layout list only where the role may read venues. The request
+        // details and session fields fall back to the initials without it.
+        can(role, { venue: ["read"] })
+          ? listRoomLayouts().catch(() => undefined)
+          : Promise.resolve(undefined),
       ]);
       return {
         kind: "event",
         event: projection,
         venueDecisions: requests === null ? undefined : { requests, venues },
+        layouts,
       };
     }
     case "technical_support": {

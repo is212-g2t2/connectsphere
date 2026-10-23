@@ -27,15 +27,13 @@ export function VenueDetails({
       <div className="sm:col-span-2">
         <dt className="eyebrow text-muted-foreground">Operating hours</dt>
         <dd className="mt-2">
-          <ul className="grid gap-1 sm:grid-cols-2">
+          <ul className="space-y-1">
             {WEEKDAYS.map(day => {
               const range = venue.operatingHours[day];
               return (
-                <li key={day} className="flex justify-between gap-4 body-sm">
-                  <span>{WEEKDAY_LABELS[day]}</span>
-                  <span className="font-medium">
-                    {range ? `${range.opens} – ${range.closes}` : "Closed"}
-                  </span>
+                <li key={day} className="flex items-baseline gap-3 body-sm">
+                  <span className="w-20 shrink-0 font-medium">{WEEKDAY_LABELS[day]}</span>
+                  <span>{range ? `${range.opens} – ${range.closes}` : "Closed"}</span>
                 </li>
               );
             })}
