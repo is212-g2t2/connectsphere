@@ -10,6 +10,7 @@ import { eq, inArray } from "drizzle-orm";
 import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
 import { waitForEmail } from "./mailpit";
+import { chooseSelectValue } from "./request-form";
 import { registerAccount } from "./register";
 import { signInAsStaff } from "./staff-auth";
 
@@ -414,7 +415,7 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
     await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
     await organiserPage.getByLabel("Expected attendance (required)").fill("120");
-    await organiserPage.getByLabel("Room-layout preference (required)").fill("Classroom");
+    await chooseSelectValue(organiserPage, "Room-layout preference (required)", "Classroom");
     await organiserPage.getByLabel("Your reply").fill(reply);
     await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
     await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();

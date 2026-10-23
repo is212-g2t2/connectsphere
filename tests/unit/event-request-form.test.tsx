@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -131,10 +131,6 @@ describe("EventRequestForm", () => {
       "Purpose (required)": initialValues.purpose,
       "Expected attendance (required)": "125",
       "Description (required)": initialValues.description,
-      "Type of event (optional)": initialValues.eventType,
-      "Venue requirements (required)": initialValues.venueRequirements,
-      "Room-layout preference (required)": initialValues.roomLayoutPreference,
-      "Accessibility requirements (required)": initialValues.accessibilityRequirements,
       "Special arrangements (optional)": initialValues.specialArrangements,
       "Proposed start 1 (required)": "2030-11-18T09:30",
       "Proposed end 1 (required)": "2030-11-18T12:45",
@@ -148,6 +144,21 @@ describe("EventRequestForm", () => {
     for (const [label, value] of Object.entries(displayedValues)) {
       expect(inputValue(label)).toBe(value);
     }
+
+    // The four controlled fields keep the stored text. None of these values is in the new
+    // vocabulary, so each opens as "Other" with the original text intact.
+    expect(inputValue("Type of event: other")).toBe(initialValues.eventType);
+    expect(inputValue("Room-layout preference: other")).toBe(initialValues.roomLayoutPreference);
+    expect(inputValue("Venue requirements: other")).toBe(initialValues.venueRequirements);
+    expect(inputValue("Accessibility requirements: other")).toBe(
+      initialValues.accessibilityRequirements
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Type of event (optional)" }).textContent
+    ).toContain("Other");
+    expect(
+      screen.getByRole("combobox", { name: "Room-layout preference (required)" }).textContent
+    ).toContain("Other");
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
@@ -465,11 +476,117 @@ describe("EventRequestForm", () => {
     expect(screen.queryByRole("button", { name: "Submit request" })).toBeNull();
   });
 
-  it("names the additional section and explains None for accessibility", () => {
+  it("stores checked options as one string and lets None replace them", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    const power = screen.getByRole("checkbox", { name: "Power outlets" });
+    const parking = screen.getByRole("checkbox", { name: "Parking" });
+    const stepFree = screen.getByRole("checkbox", { name: "Step-free access" });
+    const none = screen.getByRole("checkbox", { name: "None" });
+
+    await user.click(power);
+    await user.click(parking);
+    await user.click(stepFree);
+    expect(power.getAttribute("aria-checked")).toBe("true");
+    expect(parking.getAttribute("aria-checked")).toBe("true");
+    expect(stepFree.getAttribute("aria-checked")).toBe("true");
+
+    await user.click(none);
+    expect(none.getAttribute("aria-checked")).toBe("true");
+    expect(stepFree.getAttribute("aria-checked")).toBe("false");
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      venueRequirements: "Power outlets; Parking",
+      accessibilityRequirements: "None",
+    });
+  });
+
+  it("clears None when another accessibility option is chosen", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    const none = screen.getByRole("checkbox", { name: "None" });
+    const toilet = screen.getByRole("checkbox", { name: "Accessible toilet" });
+
+    await user.click(none);
+    expect(none.getAttribute("aria-checked")).toBe("true");
+
+    await user.click(toilet);
+    expect(toilet.getAttribute("aria-checked")).toBe("true");
+    expect(none.getAttribute("aria-checked")).toBe("false");
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].accessibilityRequirements).toBe("Accessible toilet");
+  });
+
+  it("keeps Other text and selected options in one value", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Power outlets" }));
+    const venueGroup = screen.getByRole("group", { name: "Venue requirements (required)" });
+    await user.click(within(venueGroup).getByRole("checkbox", { name: "Other" }));
+    await user.type(screen.getByLabelText("Venue requirements: other"), "Near the MRT");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].venueRequirements).toBe("Power outlets; Near the MRT");
+  });
+
+  it("replaces a stored None when another accessibility option is chosen", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(
+      <EventRequestForm
+        initialValues={{ ...initialValues, accessibilityRequirements: "None" }}
+        onSave={onSave}
+      />
+    );
+
+    expect(screen.getByRole("checkbox", { name: "None" }).getAttribute("aria-checked")).toBe(
+      "true"
+    );
+    expect(screen.queryByLabelText("Accessibility requirements: other")).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: "Step-free access" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].accessibilityRequirements).toBe("Step-free access");
+  });
+
+  it("keeps legacy Other text before a newly chosen option", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(
+      <EventRequestForm
+        initialValues={{ ...initialValues, venueRequirements: "Ground floor" }}
+        onSave={onSave}
+      />
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Parking" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].venueRequirements).toBe("Ground floor; Parking");
+  });
+
+  it("groups the form and explains None for accessibility", () => {
     render(<EventRequestForm onSave={makeOnSave()} />);
 
-    expect(screen.getByRole("region", { name: "Additional requirements" })).toBeTruthy();
-    expect(screen.getByText("Enter None if there are no accessibility needs.")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Event details" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Requirements" })).toBeTruthy();
+    expect(screen.getByText("Choose None if there are no accessibility needs.")).toBeTruthy();
   });
 
   it("routes Submit request to the submission handler and leaves the save handler alone", async () => {
@@ -583,7 +700,8 @@ describe("EventRequestForm", () => {
     );
     const { rerender } = render(replyForm(initialValues));
 
-    fill("Room-layout preference (required)", "Boardroom");
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference (required)" }));
+    await user.click(await screen.findByRole("option", { name: "Boardroom" }));
     await user.type(screen.getByLabelText("Your reply (required)"), "Please use a boardroom.");
 
     rerender(
@@ -592,7 +710,9 @@ describe("EventRequestForm", () => {
 
     // The form owns its values for this mount. The reply and the organiser's own edits survive.
     expect(inputValue("Expected attendance (required)")).toBe("125");
-    expect(inputValue("Room-layout preference (required)")).toBe("Boardroom");
+    expect(
+      screen.getByRole("combobox", { name: "Room-layout preference (required)" }).textContent
+    ).toContain("Boardroom");
     expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
       "Please use a boardroom."
     );
@@ -606,7 +726,8 @@ describe("EventRequestForm", () => {
     );
     const { rerender } = render(draftForm(initialValues));
 
-    fill("Room-layout preference (required)", "Boardroom");
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference (required)" }));
+    await user.click(await screen.findByRole("option", { name: "Boardroom" }));
     rerender(
       draftForm({
         ...initialValues,
@@ -626,16 +747,15 @@ describe("EventRequestForm", () => {
     render(
       <EventRequestForm
         initialValues={{ ...initialValues, expectedAttendance: 120 }}
-        editableFields={["expectedAttendance", "roomLayoutPreference"]}
+        editableFields={["expectedAttendance", "roomLayoutPreference", "venueRequirements"]}
         replyBody={{ label: "Your reply" }}
         onSave={makeOnSave()}
       />
     );
 
     expect(inputValue("Expected attendance (required)")).toBe("120");
-    expect(inputValue("Room-layout preference (required)")).toBe(
-      initialValues.roomLayoutPreference
-    );
+    expect(inputValue("Room-layout preference: other")).toBe(initialValues.roomLayoutPreference);
+    expect(inputValue("Venue requirements: other")).toBe(initialValues.venueRequirements);
     expect(inputValue("Your reply (required)")).toBe("");
   });
 

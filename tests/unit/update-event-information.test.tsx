@@ -408,9 +408,8 @@ describe("warning before a significant change (PTR-23)", () => {
     updateEventInformation.mockResolvedValue(saved(["roomLayoutPreference"]));
     const user = await openForm();
 
-    const layout = screen.getByLabelText<HTMLInputElement>("Room-layout preference (required)");
-    await user.clear(layout);
-    await user.type(layout, "Boardroom");
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference (required)" }));
+    await user.click(await screen.findByRole("option", { name: "Boardroom" }));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const dialog = await screen.findByRole("alertdialog");

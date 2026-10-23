@@ -14,6 +14,13 @@ import {
   FieldSet,
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
 import {
   CLARIFICATION_TEXT_MAX,
@@ -60,18 +67,341 @@ export interface EventRequestFormSubmitContext {
 
 /**
  * PTR-155: these details are required at submission, but a draft may leave them blank.
- * Required fields render first, on the create page and in reply mode.
+ * `control` picks the input; the option lists are the vocabulary the Coordinator reads.
  */
-const TEXT_FIELDS = [
-  { name: "description", label: "Description", required: true },
-  { name: "venueRequirements", label: "Venue requirements", required: true },
-  { name: "roomLayoutPreference", label: "Room-layout preference", required: true },
-  { name: "accessibilityRequirements", label: "Accessibility requirements", required: true },
-  { name: "eventType", label: "Type of event", required: false },
-  { name: "specialArrangements", label: "Special arrangements", required: false },
-] as const satisfies readonly { name: ClarificationField; label: string; required: boolean }[];
+const EVENT_TYPE_OPTIONS = ["Workshop", "Meeting", "Training", "Social", "Conference"] as const;
 
-type TextField = (typeof TEXT_FIELDS)[number];
+const ROOM_LAYOUT_OPTIONS = [
+  "Theatre",
+  "Classroom",
+  "Boardroom",
+  "Banquet",
+  "Exhibition",
+  "U-shape",
+  "Cabaret",
+] as const;
+
+const VENUE_REQUIREMENT_OPTIONS = [
+  "Power outlets",
+  "Natural light",
+  "Air conditioning",
+  "Projector and screen",
+  "Sound system",
+  "Parking",
+  "Kitchen access",
+  "Outdoor space",
+] as const;
+
+const ACCESSIBILITY_OPTIONS = [
+  "Step-free access",
+  "Accessible toilet",
+  "Wheelchair space",
+  "Hearing loop",
+  "Quiet room",
+  "Sign-language interpreter",
+] as const;
+
+const VALUE_SEPARATOR = "; ";
+
+type TextFieldName =
+  | "eventType"
+  | "description"
+  | "venueRequirements"
+  | "roomLayoutPreference"
+  | "accessibilityRequirements"
+  | "specialArrangements";
+
+interface TextField {
+  name: TextFieldName;
+  label: string;
+  required: boolean;
+  control: "textarea" | "select" | "checkboxes";
+  options?: readonly string[];
+  /** The option that clears every other choice. */
+  exclusiveOption?: string;
+  description?: string;
+  rows?: number;
+}
+
+type TextFieldShape = Omit<TextField, "name">;
+
+const TEXT_FIELDS = {
+  eventType: {
+    label: "Type of event",
+    required: false,
+    control: "select",
+    options: EVENT_TYPE_OPTIONS,
+  },
+  description: {
+    label: "Description",
+    required: true,
+    control: "textarea",
+  },
+  venueRequirements: {
+    label: "Venue requirements",
+    required: true,
+    control: "checkboxes",
+    options: VENUE_REQUIREMENT_OPTIONS,
+    exclusiveOption: "No special requirements",
+    description: "Choose every facility the event needs.",
+  },
+  roomLayoutPreference: {
+    label: "Room-layout preference",
+    required: true,
+    control: "select",
+    options: ROOM_LAYOUT_OPTIONS,
+  },
+  accessibilityRequirements: {
+    label: "Accessibility requirements",
+    required: true,
+    control: "checkboxes",
+    options: ACCESSIBILITY_OPTIONS,
+    exclusiveOption: "None",
+    description: "Choose None if there are no accessibility needs.",
+  },
+  specialArrangements: {
+    label: "Special arrangements",
+    required: false,
+    control: "textarea",
+    rows: 2,
+  },
+} as const satisfies Record<TextFieldName, TextFieldShape>;
+
+/** Attach the key as the field name, so a caller cannot name a field outside the table. */
+function textField(name: TextFieldName): TextField {
+  return { name, ...TEXT_FIELDS[name] };
+}
+
+/** A checkbox group whose value stays one string, joined with `VALUE_SEPARATOR`. */
+function CheckboxGroupControl({
+  id,
+  label,
+  value,
+  options,
+  exclusiveOption,
+  disabled,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: readonly string[];
+  exclusiveOption?: string;
+  disabled: boolean;
+  invalid: boolean;
+  onChange: (value: string) => void;
+}) {
+  const parts = value === "" ? [] : value.split(VALUE_SEPARATOR);
+  const known = new Set<string>(options);
+  const selected = parts.filter(part => known.has(part) || part === exclusiveOption);
+  const storedOther = parts
+    .filter(part => !known.has(part) && part !== exclusiveOption)
+    .join(VALUE_SEPARATOR);
+  const [otherOpen, setOtherOpen] = useState(storedOther !== "");
+  const [otherText, setOtherText] = useState(storedOther);
+
+  const commit = (nextSelected: readonly string[], nextOther: string) => {
+    const trimmed = nextOther.trim();
+    const next: string[] = [];
+    // Keep the stored order for values that survive; append newly chosen options.
+    for (const part of parts) {
+      if (part === exclusiveOption || known.has(part)) {
+        if (nextSelected.includes(part) && !next.includes(part)) next.push(part);
+      } else if (trimmed !== "" && !next.includes(trimmed)) {
+        next.push(trimmed);
+      }
+    }
+    for (const option of nextSelected) {
+      if (!next.includes(option)) next.push(option);
+    }
+    if (trimmed !== "" && !next.includes(trimmed)) next.push(trimmed);
+    onChange(next.join(VALUE_SEPARATOR));
+  };
+
+  const toggle = (option: string, checked: boolean) => {
+    if (!checked) {
+      commit(
+        selected.filter(item => item !== option),
+        otherText
+      );
+      return;
+    }
+    if (option === exclusiveOption) {
+      setOtherOpen(false);
+      setOtherText("");
+      onChange(option);
+      return;
+    }
+    commit([...selected.filter(item => item !== exclusiveOption), option], otherText);
+  };
+
+  const toggleOther = (checked: boolean) => {
+    setOtherOpen(checked);
+    if (!checked) {
+      setOtherText("");
+      commit(
+        selected.filter(item => item !== exclusiveOption),
+        ""
+      );
+      return;
+    }
+    if (exclusiveOption !== undefined && selected.includes(exclusiveOption)) {
+      commit([], "");
+    }
+  };
+
+  const changeOther = (text: string) => {
+    setOtherText(text);
+    commit(
+      selected.filter(item => item !== exclusiveOption),
+      text
+    );
+  };
+
+  return (
+    <div data-slot="checkbox-group" className="grid gap-3 sm:grid-cols-2">
+      {options.map((option, index) => {
+        const optionId = `${id}-option-${index}`;
+        return (
+          <Field key={option} orientation="horizontal">
+            <Checkbox
+              id={optionId}
+              checked={selected.includes(option)}
+              disabled={disabled}
+              onCheckedChange={checked => toggle(option, checked)}
+            />
+            <FieldLabel htmlFor={optionId}>{option}</FieldLabel>
+          </Field>
+        );
+      })}
+      {exclusiveOption !== undefined && (
+        <Field orientation="horizontal">
+          <Checkbox
+            id={`${id}-none`}
+            checked={selected.includes(exclusiveOption)}
+            disabled={disabled}
+            onCheckedChange={checked => toggle(exclusiveOption, checked)}
+          />
+          <FieldLabel htmlFor={`${id}-none`}>{exclusiveOption}</FieldLabel>
+        </Field>
+      )}
+      <Field orientation="horizontal">
+        <Checkbox
+          id={`${id}-other`}
+          checked={otherOpen || otherText !== ""}
+          disabled={disabled}
+          onCheckedChange={checked => toggleOther(checked)}
+        />
+        <FieldLabel htmlFor={`${id}-other`}>Other</FieldLabel>
+      </Field>
+      {otherOpen && (
+        <Textarea
+          id={`${id}-other-text`}
+          className="min-h-0 sm:col-span-2"
+          rows={2}
+          aria-label={`${label}: other`}
+          placeholder="Describe it"
+          value={otherText}
+          disabled={disabled}
+          aria-invalid={invalid}
+          onChange={event => changeOther(event.target.value)}
+          onBlur={() => {
+            if (otherText.trim() === "") {
+              setOtherOpen(false);
+              commit(selected, "");
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A single-choice select that keeps free text through an "Other" item. */
+function SelectControl({
+  id,
+  label,
+  value,
+  options,
+  optional,
+  disabled,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: readonly string[];
+  optional: boolean;
+  disabled: boolean;
+  invalid: boolean;
+  onChange: (value: string) => void;
+}) {
+  const isOption = value === "" || options.includes(value);
+  const [otherOpen, setOtherOpen] = useState(!isOption);
+  const [otherText, setOtherText] = useState(isOption ? "" : value);
+
+  const handleValueChange = (next: string | null) => {
+    if (next === "__other") {
+      // Re-selecting the open Other row must not erase the text it holds.
+      if (otherOpen) return;
+      setOtherOpen(true);
+      setOtherText("");
+      onChange("");
+      return;
+    }
+    setOtherOpen(false);
+    onChange(next === null ? "" : next);
+  };
+
+  const display = otherOpen ? "Other" : value === "" ? (optional ? "Not specified" : null) : value;
+
+  return (
+    <>
+      <Select
+        value={otherOpen ? "__other" : value === "" ? null : value}
+        onValueChange={handleValueChange}
+        disabled={disabled}
+      >
+        <SelectTrigger id={id} className="w-full" aria-invalid={invalid}>
+          <SelectValue placeholder={optional ? "Not specified" : "Choose one"}>
+            {display}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(option => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+          <SelectItem value="__other">Other</SelectItem>
+          <SelectItem value={null}>{optional ? "Not specified" : "Choose one"}</SelectItem>
+        </SelectContent>
+      </Select>
+      {otherOpen && (
+        <Input
+          className="mt-2"
+          aria-label={`${label}: other`}
+          placeholder="Type the value"
+          value={otherText}
+          disabled={disabled}
+          aria-invalid={invalid}
+          onChange={event => {
+            setOtherText(event.target.value);
+            onChange(event.target.value);
+          }}
+          onBlur={() => {
+            if (otherText.trim() === "") {
+              setOtherOpen(false);
+              onChange("");
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
 
 /** Registration rows vary by name, label, and input type, like the equipment rows. */
 const REGISTRATION_FIELDS = [
@@ -520,41 +850,75 @@ export function EventRequestForm({
     </form.Field>
   );
 
-  const renderTextField = (textField: TextField) => (
-    <form.Field name={textField.name}>
-      {field => (
-        <Field data-invalid={field.state.meta.errors.length > 0}>
-          <FieldLabel htmlFor={inputId(field.name)}>
-            {textField.label} ({textField.required ? "required" : "optional"})
-          </FieldLabel>
-          {textField.name === "eventType" ? (
-            <Input
-              id={inputId(field.name)}
-              required={textField.required}
-              disabled={!editable(textField.name)}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={event => field.handleChange(event.target.value)}
-              aria-invalid={field.state.meta.errors.length > 0}
-            />
-          ) : (
-            <Textarea
-              id={inputId(field.name)}
-              rows={3}
-              required={textField.required}
-              disabled={!editable(textField.name)}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={event => field.handleChange(event.target.value)}
-              aria-invalid={field.state.meta.errors.length > 0}
-            />
-          )}
-          {textField.name === "accessibilityRequirements" && (
-            <FieldDescription>Enter None if there are no accessibility needs.</FieldDescription>
-          )}
-          <FieldError errors={field.state.meta.errors} />
-        </Field>
-      )}
+  const renderTextField = (metadata: TextField) => (
+    <form.Field name={metadata.name}>
+      {field => {
+        const id = inputId(field.name);
+        const invalid = field.state.meta.errors.length > 0;
+        const label = `${metadata.label} (${metadata.required ? "required" : "optional"})`;
+        const description = metadata.description !== undefined && (
+          <FieldDescription>{metadata.description}</FieldDescription>
+        );
+
+        if (metadata.control === "checkboxes") {
+          const describedBy = [
+            metadata.description !== undefined ? `${id}-description` : null,
+            invalid ? `${id}-error` : null,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return (
+            <FieldSet data-invalid={invalid} aria-describedby={describedBy || undefined}>
+              <FieldLegend>{label}</FieldLegend>
+              {metadata.description !== undefined && (
+                <FieldDescription id={`${id}-description`}>{metadata.description}</FieldDescription>
+              )}
+              <CheckboxGroupControl
+                id={id}
+                label={metadata.label}
+                value={field.state.value}
+                options={metadata.options ?? []}
+                exclusiveOption={metadata.exclusiveOption}
+                disabled={!editable(field.name)}
+                invalid={invalid}
+                onChange={value => field.handleChange(value)}
+              />
+              <FieldError id={`${id}-error`} errors={field.state.meta.errors} />
+            </FieldSet>
+          );
+        }
+
+        return (
+          <Field data-invalid={invalid}>
+            <FieldLabel htmlFor={id}>{label}</FieldLabel>
+            {metadata.control === "select" ? (
+              <SelectControl
+                id={id}
+                label={metadata.label}
+                value={field.state.value}
+                options={metadata.options ?? []}
+                optional={!metadata.required}
+                disabled={!editable(field.name)}
+                invalid={invalid}
+                onChange={value => field.handleChange(value)}
+              />
+            ) : (
+              <Textarea
+                id={id}
+                rows={metadata.rows ?? 3}
+                required={metadata.required}
+                disabled={!editable(field.name)}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={event => field.handleChange(event.target.value)}
+                aria-invalid={invalid}
+              />
+            )}
+            {description}
+            <FieldError errors={field.state.meta.errors} />
+          </Field>
+        );
+      }}
     </form.Field>
   );
 
@@ -621,13 +985,27 @@ export function EventRequestForm({
   const canonicalFields: { key: ClarificationField; render: () => React.ReactNode }[] = [
     { key: "eventName", render: renderEventName },
     { key: "purpose", render: renderPurpose },
-    { key: "proposedDates", render: renderProposedDates },
+    { key: "eventType", render: () => renderTextField(textField("eventType")) },
     { key: "expectedAttendance", render: renderExpectedAttendance },
+    { key: "description", render: () => renderTextField(textField("description")) },
+    { key: "proposedDates", render: renderProposedDates },
+    {
+      key: "venueRequirements",
+      render: () => renderTextField(textField("venueRequirements")),
+    },
+    {
+      key: "roomLayoutPreference",
+      render: () => renderTextField(textField("roomLayoutPreference")),
+    },
+    {
+      key: "accessibilityRequirements",
+      render: () => renderTextField(textField("accessibilityRequirements")),
+    },
+    {
+      key: "specialArrangements",
+      render: () => renderTextField(textField("specialArrangements")),
+    },
     { key: "attendeeRegistration", render: renderRegistration },
-    ...TEXT_FIELDS.map(textField => ({
-      key: textField.name,
-      render: () => renderTextField(textField),
-    })),
     { key: "equipmentRequirements", render: renderEquipment },
   ];
 
@@ -760,21 +1138,42 @@ export function EventRequestForm({
       </p>
 
       <FieldGroup>
-        {renderEventName()}
-        {renderPurpose()}
-        {renderProposedDates()}
-        {renderExpectedAttendance()}
-        {renderRegistration()}
-
-        <section
-          className="space-y-6 border-t border-border pt-6"
-          aria-label="Additional requirements"
-        >
-          <h3 className="display-h3">Additional requirements</h3>
-          {TEXT_FIELDS.map(textField => (
-            <Fragment key={textField.name}>{renderTextField(textField)}</Fragment>
-          ))}
+        <section className="space-y-6 border-t border-border pt-6" aria-label="Event details">
+          <div>
+            <h3 className="display-h3">Event details</h3>
+            <p className="mt-1 body-sm text-muted-foreground">
+              What the event is, who it is for, and how many people come.
+            </p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="md:col-span-2">{renderEventName()}</div>
+            <div className="md:col-span-2">{renderPurpose()}</div>
+            <div>{renderTextField(textField("eventType"))}</div>
+            <div>{renderExpectedAttendance()}</div>
+            <div className="md:col-span-2">{renderTextField(textField("description"))}</div>
+          </div>
         </section>
+
+        {renderProposedDates()}
+
+        <section className="space-y-6 border-t border-border pt-6" aria-label="Requirements">
+          <div>
+            <h3 className="display-h3">Requirements</h3>
+            <p className="mt-1 body-sm text-muted-foreground">
+              How the room should be set up, and what it must provide.
+            </p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="md:col-span-2">{renderTextField(textField("venueRequirements"))}</div>
+            <div>{renderTextField(textField("roomLayoutPreference"))}</div>
+            <div>{renderTextField(textField("specialArrangements"))}</div>
+            <div className="md:col-span-2">
+              {renderTextField(textField("accessibilityRequirements"))}
+            </div>
+          </div>
+        </section>
+
+        {renderRegistration()}
 
         {renderEquipment()}
 
