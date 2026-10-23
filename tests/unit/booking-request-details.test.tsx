@@ -149,6 +149,21 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(screen.queryByText("Facilities")).toBeNull();
   });
 
+  it("names the layout by the maintained list's label", () => {
+    render(
+      <BookingRequestDetails
+        request={{
+          ...request,
+          requirements: { ...request.requirements, layout: "Grand Theatre" },
+        }}
+        layouts={[{ key: "grand", label: "Grand Theatre" }]}
+      />
+    );
+
+    // The initials would read this text as "Theatre". The maintained list names it fully.
+    expect(detailValue("Layout").textContent).toBe("Grand Theatre");
+  });
+
   it("offers no approval, rejection, assignment, or other mutation controls (TC20)", () => {
     render(<BookingRequestDetails request={request} />);
 

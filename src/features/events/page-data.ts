@@ -6,6 +6,7 @@ import type { EventProjection, RegisteredAttendee } from "#/features/events/acce
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import type { SafetyReviewDetail } from "#/features/safety-reviews/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 
 /** One equipment type the availability checker offers, as `listEquipmentTypes` returns it. */
 export type EquipmentTypeOption = Awaited<ReturnType<typeof listEquipmentTypes>>[number];
@@ -45,6 +46,8 @@ export type EventPageData =
         requests: PendingVenueRequestDetail[];
         venues: VenueOption[];
       };
+      /** The maintained room layout list, for session-requirement labels. Unset when the read failed. */
+      layouts?: readonly RoomLayout[];
       equipmentTypes?: EquipmentTypeOption[] | null;
       attendees?: RegisteredAttendee[] | null;
       /**

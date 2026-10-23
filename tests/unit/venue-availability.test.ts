@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  closedDaysInRange,
+  isClosedOn,
   openingPeriods,
   projectAvailability,
   venueLocalTimestamp,
@@ -13,6 +15,7 @@ import {
   parseAvailabilityRequest,
   parseAvailabilitySelection,
 } from "#/features/venues/schema";
+import type { OperatingHours } from "#/features/venues/schema";
 
 /** 2026-10-05 is a Monday. The fixture hours below open Mon-Fri and close at the weekend. */
 function day(dayOfMonth: number, time: string) {
@@ -141,6 +144,35 @@ describe("PTR-28 opening periods", () => {
 describe("venue-local clock", () => {
   it("reads an instant on the Singapore wall clock, across the date line", () => {
     expect(venueLocalTimestamp(new Date("2026-10-05T16:30:15Z"))).toBe("2026-10-06 00:30:15");
+  });
+});
+
+describe("closed days", () => {
+  it("closes the weekend and opens the weekdays", () => {
+    expect(isClosedOn(DEFAULT_OPERATING_HOURS, "2026-10-05")).toBe(false);
+    expect(isClosedOn(DEFAULT_OPERATING_HOURS, "2026-10-09")).toBe(false);
+    expect(isClosedOn(DEFAULT_OPERATING_HOURS, "2026-10-10")).toBe(true);
+    expect(isClosedOn(DEFAULT_OPERATING_HOURS, "2026-10-11")).toBe(true);
+  });
+
+  it("reads the leap day as its Thursday opening", () => {
+    expect(isClosedOn(DEFAULT_OPERATING_HOURS, "2024-02-29")).toBe(false);
+    expect(closedDaysInRange(DEFAULT_OPERATING_HOURS, "2024-02-29", "2024-02-29")).toEqual([]);
+  });
+
+  it("counts a missing weekday key as closed", () => {
+    const partial: Partial<OperatingHours> = { ...DEFAULT_OPERATING_HOURS };
+    delete partial.sun;
+
+    expect(isClosedOn(partial as OperatingHours, "2026-10-11")).toBe(true);
+    expect(isClosedOn(partial as OperatingHours, "2026-10-05")).toBe(false);
+  });
+
+  it("lists the closed days of a range, boundaries included", () => {
+    expect(closedDaysInRange(DEFAULT_OPERATING_HOURS, "2026-10-09", "2026-10-12")).toEqual([
+      "2026-10-10",
+      "2026-10-11",
+    ]);
   });
 });
 

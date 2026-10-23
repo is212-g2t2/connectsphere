@@ -12,30 +12,34 @@ test("[PTR-29][AC1][AC2][AC3] a Coordinator filters the live venue catalogue", a
 
   await Promise.all(
     [
-      "Date",
-      "End date",
-      "Start time",
-      "End time",
-      "Expected attendance",
-      "Location",
-      "Minimum capacity",
-      "Accessibility features",
-      "Supported layout",
-      "Required facilities",
+      "Date (optional)",
+      "End date (optional)",
+      "Start time (optional)",
+      "End time (optional)",
+      "Expected attendance (optional)",
+      "Location (optional)",
+      "Minimum capacity (optional)",
+      "Accessibility features (optional)",
+      "Supported layout (optional)",
+      "Required facilities (optional)",
     ].map(label => expect(page.getByLabel(label, { exact: true })).toBeVisible())
   );
 
-  await page.getByLabel("Expected attendance", { exact: true }).fill("100");
-  await page.getByLabel("Location", { exact: true }).fill("Marina Centre");
-  await page.getByLabel("Minimum capacity", { exact: true }).fill("100");
-  await page.getByLabel("Accessibility features", { exact: true }).fill("Step-free access");
-  await page.getByLabel("Supported layout", { exact: true }).fill("theatre");
-  await page.getByLabel("Required facilities", { exact: true }).fill("Projector, PA system");
+  await page.getByLabel("Expected attendance (optional)", { exact: true }).fill("100");
+  await page.getByLabel("Location (optional)", { exact: true }).fill("Marina Centre");
+  await page.getByLabel("Minimum capacity (optional)", { exact: true }).fill("100");
+  await page
+    .getByLabel("Accessibility features (optional)", { exact: true })
+    .fill("Step-free access");
+  await page.getByLabel("Supported layout (optional)", { exact: true }).fill("theatre");
+  await page
+    .getByLabel("Required facilities (optional)", { exact: true })
+    .fill("Projector, PA system");
   await page.getByRole("button", { name: "Search venues", exact: true }).click();
 
   const results = page.getByRole("region", { name: "Venue results" });
   await expect(results.getByRole("link", { name: "Harbour Hall", exact: true })).toBeVisible();
-  await expect(results.getByText("Projector, PA system", { exact: false })).toBeVisible();
+  await expect(results.getByRole("row", { name: /Harbour Hall/ })).toContainText("Projector");
   await expect(results.getByRole("link", { name: "Seminar Room 2A", exact: true })).toHaveCount(0);
 });
 
@@ -46,18 +50,20 @@ test("[PTR-29][AC4] an unavailable date and time renders an explicit empty resul
   await page.goto("/venues");
   await waitForHydration(page);
   const blockedDate = await seededBlockDate("Harbour Hall");
-  await page.getByLabel("Date", { exact: true }).fill(blockedDate);
-  await page.getByLabel("End date", { exact: true }).fill(blockedDate);
-  await page.getByLabel("Start time", { exact: true }).fill("10:00");
-  await page.getByLabel("End time", { exact: true }).fill("12:00");
-  await page.getByLabel("Expected attendance", { exact: true }).fill("100");
-  await page.getByLabel("Location", { exact: true }).fill("Marina Centre");
-  await page.getByLabel("Accessibility features", { exact: true }).fill("Step-free access");
-  await page.getByLabel("Supported layout", { exact: true }).fill("theatre");
+  await page.getByLabel("Date (optional)", { exact: true }).fill(blockedDate);
+  await page.getByLabel("End date (optional)", { exact: true }).fill(blockedDate);
+  await page.getByLabel("Start time (optional)", { exact: true }).fill("10:00");
+  await page.getByLabel("End time (optional)", { exact: true }).fill("12:00");
+  await page.getByLabel("Expected attendance (optional)", { exact: true }).fill("100");
+  await page.getByLabel("Location (optional)", { exact: true }).fill("Marina Centre");
+  await page
+    .getByLabel("Accessibility features (optional)", { exact: true })
+    .fill("Step-free access");
+  await page.getByLabel("Supported layout (optional)", { exact: true }).fill("theatre");
   // Catering prep area isolates Harbour Hall. Other Marina Centre venues match the looser
   // filters, so the blocked date alone would still return rows after the seed expansion.
   await page
-    .getByLabel("Required facilities", { exact: true })
+    .getByLabel("Required facilities (optional)", { exact: true })
     .fill("Projector, PA system, Catering prep area");
   await page.getByRole("button", { name: "Search venues", exact: true }).click();
 
@@ -81,14 +87,18 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
     .click();
 
   await expect(page.getByText(`Prefilled from ${DEMO_EVENT_NAME}`, { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Date", { exact: true })).not.toHaveValue("");
-  await expect(page.getByLabel("End date", { exact: true })).not.toHaveValue("");
-  await expect(page.getByLabel("Expected attendance", { exact: true })).toHaveValue("120");
-  await expect(page.getByLabel("Accessibility features", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Date (optional)", { exact: true })).not.toHaveValue("");
+  await expect(page.getByLabel("End date (optional)", { exact: true })).not.toHaveValue("");
+  await expect(page.getByLabel("Expected attendance (optional)", { exact: true })).toHaveValue(
+    "120"
+  );
+  await expect(page.getByLabel("Accessibility features (optional)", { exact: true })).toHaveValue(
     "Step-free access and hearing loop"
   );
-  await expect(page.getByLabel("Supported layout", { exact: true })).toHaveValue("Theatre seating");
-  await expect(page.getByLabel("Required facilities", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Supported layout (optional)", { exact: true })).toHaveValue(
+    "Theatre seating"
+  );
+  await expect(page.getByLabel("Required facilities (optional)", { exact: true })).toHaveValue(
     "Projector, PA system"
   );
   // Check that the demo request matches Harbour Hall, not only that the fields are populated.
@@ -111,9 +121,10 @@ test("[PTR-30][AC2][AC3][AC5] the venues that do not suit the event say why", as
 
   const unsuitable = page.getByRole("region", { name: "Not suitable" });
   await expect(unsuitable).toBeVisible();
+  await unsuitable.locator("summary").click();
   // Seminar Room 2A has 40 seats and the demo event needs 120. Check that the message states this.
-  const seminarRow = unsuitable.getByRole("row", { name: /Seminar Room 2A/ });
-  await expect(seminarRow).toContainText("Holds 40; 120 needed");
+  await expect(unsuitable.getByText("Seminar Room 2A", { exact: true })).toBeVisible();
+  await expect(unsuitable.getByText("Holds 40; 120 needed", { exact: false })).toBeVisible();
   // AC6: reading a verdict does not book or block the venue. The user can still open the calendar action.
   await expect(unsuitable.getByText(/books or blocks nothing/)).toBeVisible();
 });

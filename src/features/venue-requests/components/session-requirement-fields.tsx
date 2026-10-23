@@ -4,6 +4,7 @@ import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { SESSION_REQUIREMENT_INPUTS } from "#/features/venue-requests/schema";
 import type { SessionRequirementFormValues } from "#/features/venue-requests/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 
 type SessionRequirementName = keyof SessionRequirementFormValues;
 
@@ -30,12 +31,22 @@ interface SessionForm {
 export function SessionRequirementFields({
   form,
   idPrefix,
+  layouts,
   inputRef,
 }: {
   form: SessionForm;
   idPrefix: string;
+  /** The maintained list, so the layout hint names maintained labels. Absent callers keep the static hint. */
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[];
   inputRef?: (name: SessionRequirementName, element: HTMLInputElement | null) => void;
 }) {
+  const layoutHint =
+    layouts && layouts.length > 0
+      ? `${layouts
+          .slice(0, 4)
+          .map(layout => layout.label)
+          .join(", ")}…`
+      : undefined;
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {SESSION_REQUIREMENT_INPUTS.map(({ name, label, type, placeholder }) => (
@@ -48,7 +59,7 @@ export function SessionRequirementFields({
                 ref={inputRef && (element => inputRef(name, element))}
                 type={type}
                 {...(type === "number" ? { min: "1", step: "1" } : {})}
-                placeholder={placeholder}
+                placeholder={name === "layout" ? (layoutHint ?? placeholder) : placeholder}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={changeEvent => field.handleChange(changeEvent.target.value)}

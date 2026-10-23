@@ -35,3 +35,20 @@ export type Role = z.infer<typeof RoleSchema>;
 export const SelfAssignableRoleSchema = z.enum(["attendee", "event_organiser"]);
 
 export const DEFAULT_ROLE: z.infer<typeof SelfAssignableRoleSchema> = "attendee";
+
+/** The human label of each role, for settings and account surfaces. */
+export const ROLE_LABELS: Record<Role, string> = {
+  attendee: "Attendee",
+  event_organiser: "Event organiser",
+  event_coordinator: "Event coordinator",
+  event_coordinator_lead: "Event coordinator lead",
+  venue_staff: "Venue staff",
+  technical_support_staff: "Technical support staff",
+  safety_officer: "Safety officer",
+};
+
+/** Name a role for the account surfaces. Nullish falls back to Attendee; unknown stays raw. */
+export function roleLabel(role: string | null | undefined): string {
+  if (role === null || role === undefined) return ROLE_LABELS.attendee;
+  return (ROLE_LABELS as Record<string, string>)[role] ?? role;
+}

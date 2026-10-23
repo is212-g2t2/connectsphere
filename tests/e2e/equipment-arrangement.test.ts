@@ -139,7 +139,10 @@ test.describe("AC1: the dashboard card", () => {
     await page.goto("/dashboard");
     await waitForHydration(page);
 
-    const card = page.locator("[data-slot=card]").filter({ hasText: name });
+    const card = page
+      .getByRole("list", { name: "Events" })
+      .getByRole("listitem")
+      .filter({ hasText: name });
     await expect(card.getByRole("link", { name })).toBeVisible();
     await card.getByRole("link", { name }).click();
     await waitForHydration(page);
@@ -163,7 +166,8 @@ test.describe("AC2: the event page lines", () => {
     await waitForHydration(page);
 
     await page
-      .locator("[data-slot=card]")
+      .getByRole("list", { name: "Events" })
+      .getByRole("listitem")
       .filter({ hasText: name })
       .getByRole("link", { name })
       .click();
@@ -223,7 +227,7 @@ test.describe("AC3: updating a line", () => {
     });
 
     await lineItem(page, "Projector")
-      .getByLabel("Reason unavailable for Projector (required)")
+      .getByLabel("Reason unavailable for Projector")
       .fill("Loaned out");
     await saveLine(page, "Projector");
     await expect(page.getByText(SAVED_TOAST)).toBeVisible();
@@ -277,7 +281,7 @@ test.describe("AC4: what the Coordinator sees", () => {
     await openRequest(page, id);
     await chooseState(page, "Projector", "Unavailable");
     await lineItem(page, "Projector")
-      .getByLabel("Reason unavailable for Projector (required)")
+      .getByLabel("Reason unavailable for Projector")
       .fill("Loaned out");
     await saveLine(page, "Projector");
     await expect(page.getByText(SAVED_TOAST)).toBeVisible();

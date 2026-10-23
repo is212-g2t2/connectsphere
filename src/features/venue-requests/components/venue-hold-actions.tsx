@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
+import { Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import { IconAction } from "#/components/ui/icon-action";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,7 @@ import {
 } from "#/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import { formatLocalDate, formatProposedWindow } from "#/features/event-requests/format";
 import {
   Select,
   SelectContent,
@@ -45,8 +48,9 @@ import type {
   SessionRequirementFormValues,
   SessionRequirements,
 } from "#/features/venue-requests/schema";
+import { isClosedOn } from "#/features/venues/availability";
 import { INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
-import type { RoomLayout } from "#/features/venues/schema";
+import type { OperatingHours, RoomLayout } from "#/features/venues/schema";
 import {
   convertVenueHold,
   releaseVenueHold,
@@ -136,17 +140,8 @@ export function WithdrawVenueHoldRequestButton({ holdId }: { holdId: string }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger
-        render={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            aria-label="Withdraw hold request"
-          />
-        }
-      >
-        {pending ? "Withdrawing…" : "Withdraw request"}
-      </AlertDialogTrigger>
+        render={<IconAction label="Withdraw hold request" icon={<Undo2 />} disabled={pending} />}
+      />
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogTitle>Withdraw hold request</AlertDialogTitle>
@@ -246,7 +241,7 @@ export function ConvertVenueHoldButton({
             void form.handleSubmit();
           }}
         >
-          <SessionRequirementFields form={form} idPrefix={`convert-${holdId}`} />
+          <SessionRequirementFields form={form} idPrefix={`convert-${holdId}`} layouts={layouts} />
           <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
             {([isSubmitting, onSubmitError]) => (
               <>
@@ -280,6 +275,15 @@ export function ConvertVenueHoldButton({
 
 const EMPTY_COORDINATOR_EVENTS: readonly CoordinatorEventOption[] = [];
 
+/** A hold starts on a civil day no reader mistakes. Warn and refuse the submit on a closed day. */
+function isClosedStartDay(operatingHours: OperatingHours | undefined, date: string) {
+  return (
+    operatingHours !== undefined &&
+    /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+    isClosedOn(operatingHours, date)
+  );
+}
+
 /** The event select stores its id as text; the schema and server require a number. */
 function toHoldInput(
   venueId: number,
@@ -304,6 +308,7 @@ export function RequestVenueHoldDialog({
   defaultDate = "",
   defaultStartTime = "09:00",
   defaultEndTime = "12:00",
+  operatingHours,
   coordinatorEvents = EMPTY_COORDINATOR_EVENTS,
   trigger,
 }: {
@@ -312,6 +317,8 @@ export function RequestVenueHoldDialog({
   defaultDate?: string;
   defaultStartTime?: string;
   defaultEndTime?: string;
+  /** The venue hours. The dialog warns and refuses the submit on a closed start day. */
+  operatingHours?: OperatingHours;
   coordinatorEvents?: readonly CoordinatorEventOption[];
   trigger?: React.ReactElement;
 }) {
@@ -359,7 +366,7 @@ export function RequestVenueHoldDialog({
         render={
           trigger ?? (
             <Button size="sm" variant="outline">
-              Request hold
+              Request a hold…
             </Button>
           )
         }
@@ -381,6 +388,17 @@ export function RequestVenueHoldDialog({
             void form.handleSubmit();
           }}
         >
+          <form.Subscribe
+            selector={state => [state.values.date, state.values.startTime, state.values.endTime]}
+          >
+            {([date, startTime, endTime]) => (
+              <p className="body-sm text-muted-foreground">
+                {date !== "" && startTime !== "" && endTime !== ""
+                  ? `Hold window: ${formatProposedWindow({ start: `${date}T${startTime}`, end: `${date}T${endTime}` })}.`
+                  : "Choose a date and times."}
+              </p>
+            )}
+          </form.Subscribe>
           {hasEvents ? (
             <form.Field name="eventId">
               {field => (
@@ -434,6 +452,12 @@ export function RequestVenueHoldDialog({
                   aria-invalid={field.state.meta.errors.length > 0}
                 />
                 <FieldError errors={field.state.meta.errors} />
+                {isClosedStartDay(operatingHours, field.state.value) ? (
+                  <p role="alert" className="body-sm text-destructive">
+                    {venueName} is closed on {formatLocalDate(field.state.value)}. Choose an open
+                    day.
+                  </p>
+                ) : null}
               </Field>
             )}
           </form.Field>
@@ -474,8 +498,10 @@ export function RequestVenueHoldDialog({
             </form.Field>
           </div>
 
-          <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
-            {([isSubmitting, onSubmitError]) => (
+          <form.Subscribe
+            selector={state => [state.isSubmitting, state.errorMap.onSubmit, state.values.date]}
+          >
+            {([isSubmitting, onSubmitError, date]) => (
               <>
                 {typeof onSubmitError === "string" ? (
                   <p role="alert" className="body-sm text-destructive">
@@ -492,7 +518,15 @@ export function RequestVenueHoldDialog({
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" disabled={Boolean(isSubmitting) || !hasEvents}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={
+                      Boolean(isSubmitting) ||
+                      !hasEvents ||
+                      isClosedStartDay(operatingHours, typeof date === "string" ? date : "")
+                    }
+                  >
                     {isSubmitting ? "Requesting…" : "Send request"}
                   </Button>
                 </div>

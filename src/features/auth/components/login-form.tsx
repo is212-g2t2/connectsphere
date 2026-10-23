@@ -2,6 +2,7 @@ import { cn } from "#/lib/utils";
 import { Button } from "#/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import { PasswordInput } from "#/features/auth/components/password-input";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
@@ -73,9 +74,8 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
             {field => (
               <Field>
                 <FieldLabel htmlFor="password">Password</FieldLabel>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   autoComplete="current-password"
                   value={field.state.value}
                   onChange={e => field.handleChange(e.target.value)}
@@ -100,7 +100,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           <form.Subscribe selector={s => s.isSubmitting}>
             {isSubmitting => (
               <Field>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting} className="min-h-11 w-full">
                   {isSubmitting ? "Signing in..." : "Sign in"}
                 </Button>
               </Field>

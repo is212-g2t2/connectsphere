@@ -48,10 +48,7 @@ describe("ClarificationReplyForm", () => {
       <ClarificationReplyForm requestId={7} clarification={{ id: 14, permittedFields: [] }} />
     );
 
-    await user.type(
-      screen.getByLabelText("Your reply (required)"),
-      "  The venue is wheelchair accessible.  "
-    );
+    await user.type(screen.getByLabelText("Your reply"), "  The venue is wheelchair accessible.  ");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
@@ -77,10 +74,7 @@ describe("ClarificationReplyForm", () => {
       <ClarificationReplyForm requestId={7} clarification={{ id: 14, permittedFields: [] }} />
     );
 
-    await user.type(
-      screen.getByLabelText("Your reply (required)"),
-      "The venue is wheelchair accessible."
-    );
+    await user.type(screen.getByLabelText("Your reply"), "The venue is wheelchair accessible.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
@@ -98,9 +92,7 @@ describe("ClarificationReplyForm", () => {
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     expect(await screen.findByText("Enter your reply")).toBeTruthy();
-    expect(screen.getByLabelText("Your reply (required)").getAttribute("aria-invalid")).toBe(
-      "true"
-    );
+    expect(screen.getByLabelText("Your reply").getAttribute("aria-invalid")).toBe("true");
     expect(replyToClarification).not.toHaveBeenCalled();
   });
 
@@ -121,16 +113,13 @@ describe("ClarificationReplyForm", () => {
       />
     );
 
-    expect(screen.getByLabelText("Event name (required)").getAttribute("disabled")).toBe("");
-    const attendance = screen.getByLabelText("Expected attendance (required)");
+    expect(screen.getByLabelText("Event name").getAttribute("disabled")).toBe("");
+    const attendance = screen.getByLabelText("Expected attendance");
     expect(attendance.getAttribute("disabled")).toBeNull();
 
     await user.clear(attendance);
     await user.type(attendance, "120");
-    await user.type(
-      screen.getByLabelText("Your reply (required)"),
-      "The revised count is confirmed."
-    );
+    await user.type(screen.getByLabelText("Your reply"), "The revised count is confirmed.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
@@ -157,13 +146,17 @@ describe("ClarificationReplyForm", () => {
       />
     );
 
-    const attendance = screen.getByLabelText("Expected attendance (required)");
+    const attendance = screen.getByLabelText("Expected attendance");
     await user.clear(attendance);
-    await user.type(screen.getByLabelText("Your reply (required)"), "The count needs revising.");
+    await user.type(screen.getByLabelText("Your reply"), "The count needs revising.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     expect(attendance.getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getByRole("alert").textContent).toBe("Expected attendance is required");
+    expect(
+      screen.getByText("Expected attendance is required", {
+        selector: '[data-slot="field-error"]',
+      })
+    ).toBeTruthy();
     expect(replyToClarification).not.toHaveBeenCalled();
   });
 
@@ -178,13 +171,15 @@ describe("ClarificationReplyForm", () => {
       />
     );
 
-    const description = screen.getByLabelText("Description (required)");
+    const description = screen.getByLabelText("Description");
     await user.clear(description);
-    await user.type(screen.getByLabelText("Your reply (required)"), "No lunch needed.");
+    await user.type(screen.getByLabelText("Your reply"), "No lunch needed.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     expect(description.getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getByRole("alert").textContent).toBe("Description is required");
+    expect(
+      screen.getByText("Description is required", { selector: '[data-slot="field-error"]' })
+    ).toBeTruthy();
     expect(replyToClarification).not.toHaveBeenCalled();
   });
 
@@ -202,7 +197,7 @@ describe("ClarificationReplyForm", () => {
       />
     );
 
-    await user.type(screen.getByLabelText("Your reply (required)"), "The purpose is unchanged.");
+    await user.type(screen.getByLabelText("Your reply"), "The purpose is unchanged.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => expect(replyToClarification).toHaveBeenCalledOnce());
@@ -223,10 +218,10 @@ describe("ClarificationReplyForm", () => {
     );
 
     await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
-    await user.type(screen.getByLabelText("Registration capacity (required)"), "50");
-    await user.type(screen.getByLabelText("Registration opens (required)"), "2030-11-01T09:00");
-    await user.type(screen.getByLabelText("Registration closes (required)"), "2030-11-08T17:00");
-    await user.type(screen.getByLabelText("Your reply (required)"), "Registration is now open.");
+    await user.type(screen.getByLabelText("Registration capacity"), "50");
+    await user.type(screen.getByLabelText("Registration opens"), "2030-11-01T09:00");
+    await user.type(screen.getByLabelText("Registration closes"), "2030-11-08T17:00");
+    await user.type(screen.getByLabelText("Your reply"), "Registration is now open.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
@@ -260,8 +255,8 @@ describe("ClarificationReplyForm", () => {
       />
     );
 
-    const reply = screen.getByLabelText("Your reply (required)");
-    const attendance = screen.getByLabelText("Expected attendance (required)");
+    const reply = screen.getByLabelText("Your reply");
+    const attendance = screen.getByLabelText("Expected attendance");
     await user.clear(attendance);
     await user.type(attendance, "120");
     await user.type(reply, "The latest capacity is 120.");
@@ -292,7 +287,7 @@ describe("ClarificationReplyForm", () => {
       <ClarificationReplyForm requestId={7} clarification={{ id: 14, permittedFields: [] }} />
     );
 
-    await user.type(screen.getByLabelText("Your reply (required)"), "The latest capacity is 120.");
+    await user.type(screen.getByLabelText("Your reply"), "The latest capacity is 120.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
@@ -312,7 +307,7 @@ describe("ClarificationReplyForm", () => {
       <ClarificationReplyForm requestId={7} clarification={{ id: 14, permittedFields: [] }} />
     );
 
-    await user.type(screen.getByLabelText("Your reply (required)"), "The latest capacity is 120.");
+    await user.type(screen.getByLabelText("Your reply"), "The latest capacity is 120.");
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     const savedButton = await screen.findByRole("button", { name: "Reply sent" });
@@ -330,7 +325,7 @@ describe("ClarificationReplyForm", () => {
       <ClarificationReplyForm requestId={7} clarification={{ id: 14, permittedFields: [] }} />
     );
 
-    const reply = screen.getByLabelText("Your reply (required)");
+    const reply = screen.getByLabelText("Your reply");
     expect(reply.getAttribute("required")).not.toBeNull();
     expect(screen.queryByText(/Only the fields selected by the Coordinator/)).toBeNull();
   });

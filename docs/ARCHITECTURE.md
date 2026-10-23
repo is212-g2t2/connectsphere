@@ -62,6 +62,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 - [ADR-6: Notification emails from a transactional queue drained by a scheduled worker](./adrs/ADR-6-notification-delivery.md)
 - [ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint](./adrs/ADR-7-venue-occupancy-ledger.md)
 - [ADR-8: Draft supporting documents in a private S3 bucket behind one adapter](./adrs/ADR-8-draft-attachments-storage.md)
+- [ADR-9: UI redesign from the screenshot review](./adrs/ADR-9-ui-redesign.md)
 
 ## Directory Structure
 

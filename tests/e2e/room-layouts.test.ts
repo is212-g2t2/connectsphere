@@ -26,18 +26,15 @@ test.describe("Room layouts", () => {
   test("lets Venue Staff add a layout type and see it in the list", async ({ page }) => {
     await signInAsVenueStaff(page);
     const suffix = randomUUID().slice(0, 8);
-    const key = `playwright-${suffix}`;
     const label = `Playwright ${suffix}`;
 
     await page.goto("/venues/layouts");
     await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Room layouts" })).toBeVisible();
 
-    await page.getByLabel("Key", { exact: true }).fill(key);
     await page.getByLabel("Label", { exact: true }).fill(label);
     await page.getByRole("button", { name: "Add layout" }).click();
 
-    await expect(page.getByRole("cell", { name: key, exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: label, exact: true })).toBeVisible();
   });
 });

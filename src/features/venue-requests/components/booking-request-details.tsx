@@ -8,13 +8,21 @@ import { EventRequirements } from "#/features/events/components/event-requiremen
 import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 
 /**
  * Show one pending booking request as read-only server data.
  * Use the shared `EventRequirements` treatment for all four operational fields. It hides blank
  * fields instead of showing "None specified".
  */
-export function BookingRequestDetails({ request }: { request: PendingVenueRequestDetail }) {
+export function BookingRequestDetails({
+  request,
+  layouts,
+}: {
+  request: PendingVenueRequestDetail;
+  /** The maintained list, so a named layout shows by its label. Absent callers show the initials. */
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[];
+}) {
   // Key the heading id by request: the staff page renders one detail block per pending request.
   // Name it with the venue and window: several blocks share the section, so each needs its own name.
   const headingId = `booking-request-details-heading-${request.id}`;
@@ -46,7 +54,7 @@ export function BookingRequestDetails({ request }: { request: PendingVenueReques
               {request.requirements.eventTiming}
             </Detail>
           </dl>
-          <EventRequirements event={request.requirements} className="mt-6" />
+          <EventRequirements event={request.requirements} layouts={layouts} className="mt-6" />
         </CardContent>
       </Card>
     </section>

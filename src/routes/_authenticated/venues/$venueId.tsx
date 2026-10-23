@@ -101,7 +101,7 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   },
   component: () => {
     const { venue, layouts, requestContext, requestContextFailed } = Route.useLoaderData();
-    const { saved, eventId: _eventId, ...prefill } = Route.useSearch();
+    const { saved, eventId, ...prefill } = Route.useSearch();
     return (
       <VenueDetailPage
         venue={venue}
@@ -110,6 +110,7 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
         requestContextFailed={requestContextFailed}
         user={Route.useRouteContext().user}
         justCreated={saved === "true"}
+        eventId={eventId}
         prefill={prefill}
       />
     );
