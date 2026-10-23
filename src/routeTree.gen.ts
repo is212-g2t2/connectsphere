@@ -19,6 +19,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as ApiEventAttachmentsRouteImport } from './routes/api/event-attachments'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
 import { Route as AuthenticatedCoordinationIndexRouteImport } from './routes/_authenticated/coordination/index'
@@ -86,6 +87,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
+} as any)
+const ApiEventAttachmentsRoute = ApiEventAttachmentsRouteImport.update({
+  id: '/api/event-attachments',
+  path: '/api/event-attachments',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -195,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/event-attachments': typeof ApiEventAttachmentsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRouteRouteWithChildren
@@ -223,6 +230,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/event-attachments': typeof ApiEventAttachmentsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
@@ -252,6 +260,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/api/event-attachments': typeof ApiEventAttachmentsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/_authenticated/events/$eventId': typeof AuthenticatedEventsEventIdRouteRouteWithChildren
@@ -282,6 +291,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/notifications'
     | '/settings'
+    | '/api/event-attachments'
     | '/api/health'
     | '/api/smoke'
     | '/events/$eventId'
@@ -310,6 +320,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/notifications'
     | '/settings'
+    | '/api/event-attachments'
     | '/api/health'
     | '/api/smoke'
     | '/event-requests/new'
@@ -338,6 +349,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/notifications'
     | '/_authenticated/settings'
+    | '/api/event-attachments'
     | '/api/health'
     | '/api/smoke'
     | '/_authenticated/events/$eventId'
@@ -365,6 +377,7 @@ export interface RootRouteChildren {
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  ApiEventAttachmentsRoute: typeof ApiEventAttachmentsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSmokeRoute: typeof ApiSmokeRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -442,6 +455,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/api/event-attachments': {
+      id: '/api/event-attachments'
+      path: '/api/event-attachments'
+      fullPath: '/api/event-attachments'
+      preLoaderRoute: typeof ApiEventAttachmentsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/health': {
       id: '/api/health'
@@ -629,6 +649,7 @@ const rootRouteChildren: RootRouteChildren = {
   RobotsDottxtRoute: RobotsDottxtRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  ApiEventAttachmentsRoute: ApiEventAttachmentsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiSmokeRoute: ApiSmokeRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

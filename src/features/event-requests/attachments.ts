@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { EventRequestIdInput } from "#/features/event-requests/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
  * Rules for the supporting documents an Organiser attaches to a draft request. This module is
@@ -138,4 +139,39 @@ export function parseAttachmentDownload(data: unknown): { id: number; attachment
   const parsed = AttachmentDownloadInput.safeParse(data);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
+}
+
+/** The refusal an event attachment read answers when the row is missing or hidden. */
+export const EVENT_ATTACHMENT_GONE_MESSAGE = "This attachment is no longer available.";
+
+/** The event page's notice when object storage is not configured. */
+export const EVENT_ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE =
+  "Supporting documents are unavailable. Try again later.";
+
+interface EventAttachmentReader {
+  role: string | null | undefined;
+  userId: string;
+  organiserId: string;
+  assignedCoordinatorId: string | null;
+  status: EventRequestStatus;
+  /** The event has at least one safety review. */
+  hasSafetyReview: boolean;
+}
+
+/**
+ * The event attachment allow-list. The Organiser who owns the event, its assigned Coordinator,
+ * a Lead (every non-draft event), and a Safety Officer reviewing it may read. Venue Staff and
+ * Technical Support with an arrangement and Attendees of published events hold event access but
+ * read no attachments, so the download route checks this list and not the event access alone.
+ */
+export function canReadEventAttachments(reader: EventAttachmentReader): boolean {
+  if (reader.role === "event_organiser" && reader.organiserId === reader.userId) return true;
+  if (reader.role === "event_coordinator" && reader.assignedCoordinatorId === reader.userId) {
+    return true;
+  }
+  if (reader.role === "event_coordinator_lead" && reader.status !== "draft") return true;
+  if (reader.role === "safety_officer" && reader.status !== "draft" && reader.hasSafetyReview) {
+    return true;
+  }
+  return false;
 }

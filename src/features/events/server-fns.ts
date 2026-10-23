@@ -312,3 +312,24 @@ export const listEventRegistrations = createServerFn({ method: "GET" })
     const [{ db }, { handleListEventRegistrations }] = await loadServer();
     return await handleListEventRegistrations(data, context.user, db);
   });
+
+/** One event's supporting documents as the event page sees them. */
+export type EventAttachmentList = Awaited<ReturnType<typeof listEventAttachments>>;
+
+/**
+ * List an event's supporting documents for the attachment allow-list (the owning Organiser,
+ * the assigned Coordinator, a Lead, or a Safety Officer reviewing it). No `can()` permission
+ * fits: the relationship is data, not a role, as with `listEvents`. The handler refuses anyone
+ * else with the same response as a missing event. Each download runs through
+ * `/api/event-attachments`, which repeats the check on every request.
+ */
+export const listEventAttachments = createServerFn({ method: "GET" })
+  .middleware([requireSession])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleListEventAttachments }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/attachments.server"),
+    ]);
+    return handleListEventAttachments(data, context.user, db);
+  });

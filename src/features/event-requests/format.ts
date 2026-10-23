@@ -17,6 +17,16 @@ export function formatLocalDateTime(value: string): string {
 }
 
 /**
+ * A stored file size as a short human-readable string, for the attachment lists.
+ * Examples: `512 B`, `2.0 KB`, `1.5 MB`.
+ */
+export function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
  * Format a stored date, such as `2030-11-18`, as `18 Nov 2030`. Use string operations for the same
  * reason as `formatLocalDateTime`. Return other values unchanged.
  */
