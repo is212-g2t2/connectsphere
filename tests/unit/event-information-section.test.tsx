@@ -175,6 +175,23 @@ describe("event information section", () => {
     expect(screen.getByText(/Seeded Event Coordinator/)).toBeTruthy();
   });
 
+  it("renders a single disclosure around the read-only record", () => {
+    const organiserData = organiserPage();
+    const organiserDefs = eventInformationSections(organiserData);
+    expect(organiserDefs).toHaveLength(1);
+    const { unmount } = render(<>{organiserDefs[0].render(organiserData)}</>);
+    // The record sits behind one disclosure, so the page keeps one "Show details" toggle.
+    expect(screen.getAllByText("Show details")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Event information" })).toBeTruthy();
+    unmount();
+
+    const leadData = leadPage();
+    const leadDefs = eventInformationSections(leadData);
+    expect(leadDefs).toHaveLength(1);
+    render(<>{leadDefs[0].render(leadData)}</>);
+    expect(screen.getAllByText("Show details")).toHaveLength(1);
+  });
+
   it("stays hidden and renders nothing without its request", () => {
     const organiserBase = organiserPage();
     if (organiserBase.kind !== "event") throw new Error("fixture must be an event page");

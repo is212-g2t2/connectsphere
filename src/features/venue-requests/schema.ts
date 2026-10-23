@@ -239,7 +239,7 @@ export const SESSION_REQUIREMENT_INPUTS: readonly {
   placeholder?: string;
 }[] = [
   { name: "expectedAttendance", label: "Expected attendance", type: "number" },
-  { name: "layout", label: "Layout", type: "text", placeholder: "Theatre, classroom, banquet…" },
+  { name: "layout", label: "Layout", type: "text", placeholder: "Layout the session needs" },
   {
     name: "accessibilityRequirements",
     label: "Accessibility",

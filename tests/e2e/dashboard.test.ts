@@ -37,6 +37,7 @@ test.describe("Settings after sign-up", () => {
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
     await page.locator("#confirmPassword").fill(password);
+    await page.locator("#role-attendee").check();
 
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({

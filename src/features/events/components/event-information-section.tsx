@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Card, CardContent } from "#/components/ui/card";
 import { CoordinatorInformationForm } from "#/features/coordination/components/change-request-decisions";
 import { Detail } from "#/features/event-requests/components/request-message-blocks";
@@ -14,12 +16,29 @@ import {
 
 const NONE = "None recorded";
 
+/**
+ * The collapsed record shell: a heading with the record behind a disclosure, so the page's
+ * request and decision blocks stay above a long read-only mirror.
+ */
+function InformationDisclosure({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <h2 className="display-h3">{title}</h2>
+      <details className="mt-4">
+        <summary className="w-fit cursor-pointer body-sm text-muted-foreground">
+          Show details
+        </summary>
+        <div className="mt-4">{children}</div>
+      </details>
+    </div>
+  );
+}
+
 /** The Organiser's read-only record. It mirrors the request detail's event information block. */
 function OrganiserInformation({ request }: { request: EventRequestDetail }) {
   return (
-    <div>
-      <h2 className="display-h3">Event information</h2>
-      <Card className="mt-4">
+    <InformationDisclosure title="Event information">
+      <Card>
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
             <Detail term="Expected attendance">{request.expectedAttendance ?? NONE}</Detail>
@@ -88,7 +107,7 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
           </dl>
         </CardContent>
       </Card>
-    </div>
+    </InformationDisclosure>
   );
 }
 
@@ -106,9 +125,8 @@ function LeadInformation({ event }: { event: EventProjection["event"] }) {
             : ""
         }${event.startTime && event.endTime ? `, ${event.startTime}–${event.endTime}` : ""}`;
   return (
-    <div>
-      <h2 className="display-h3">Event information</h2>
-      <Card className="mt-4">
+    <InformationDisclosure title="Event information">
+      <Card>
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
             <Detail term="Expected attendance">{event.expectedAttendance ?? NONE}</Detail>
@@ -169,7 +187,7 @@ function LeadInformation({ event }: { event: EventProjection["event"] }) {
           </dl>
         </CardContent>
       </Card>
-    </div>
+    </InformationDisclosure>
   );
 }
 
@@ -214,6 +232,7 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
         }
         if (body.event.access === "coordinator") {
           const request = body.coordination?.request;
+          // The form owns its own disclosure and heading; do not nest a second one.
           return request ? <CoordinatorInformationForm request={request} /> : null;
         }
         const request = body.organiserRequest;

@@ -53,12 +53,12 @@ describe("VenueForm (PTR-26)", () => {
       "Venue name",
       "Location",
       "Maximum capacity",
-      "Facilities",
-      "Accessibility features",
+      "Facilities (optional)",
+      "Accessibility features (optional)",
     ]) {
       expect(screen.getByLabelText(label, { exact: true })).not.toBeNull();
     }
-    expect(screen.getByRole("group", { name: "Supported room layouts" })).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Supported room layouts (optional)" })).not.toBeNull();
     expect(screen.getByRole("group", { name: "Operating hours" })).not.toBeNull();
     expect(screen.getByRole("checkbox", { name: "Theatre" })).not.toBeNull();
     expect(screen.getByRole("checkbox", { name: "Monday" })).not.toBeNull();
@@ -73,8 +73,8 @@ describe("VenueForm (PTR-26)", () => {
     fill("Venue name", "Seminar Room 2A");
     fill("Location", "Level 2");
     fill("Maximum capacity", "40");
-    fill("Facilities", "Projector, Whiteboard, Projector, ");
-    fill("Accessibility features", "Step-free access");
+    fill("Facilities (optional)", "Projector, Whiteboard, Projector, ");
+    fill("Accessibility features (optional)", "Step-free access");
     await user.click(screen.getByRole("checkbox", { name: "Classroom" }));
     await user.click(screen.getByRole("checkbox", { name: "Boardroom" }));
     await user.click(screen.getByRole("button", { name: "Save venue" }));
@@ -103,7 +103,7 @@ describe("VenueForm (PTR-26)", () => {
     expect(valueOf("Maximum capacity")).toBe("300");
     expect(valueOf("Setup time (minutes)")).toBe("30");
     expect(valueOf("Turnaround time (minutes)")).toBe("45");
-    expect(valueOf("Facilities")).toBe("Stage, Projector");
+    expect(valueOf("Facilities (optional)")).toBe("Stage, Projector");
     expect(isChecked("Theatre")).toBe(true);
     expect(isChecked("Saturday")).toBe(true);
     expect(valueOf("Saturday opens")).toBe("09:00");
@@ -184,6 +184,62 @@ describe("VenueForm (PTR-26)", () => {
     ).not.toBeNull();
     expect(screen.getByLabelText("Setup time (minutes)").getAttribute("aria-invalid")).toBe("true");
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("groups the fields into named sections with one legend", () => {
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} onSave={saveSpy()} />);
+
+    for (const name of ["Space", "Operations", "Facilities and access", "Layouts", "Hours"]) {
+      expect(screen.getByRole("region", { name })).toBeTruthy();
+    }
+    expect(screen.getByText("Every field is required unless marked optional.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("shows an error summary above the actions and focuses the first invalid field on submit", async () => {
+    const user = userEvent.setup();
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} onSave={saveSpy()} />);
+
+    fill("Location", "Level 2");
+    await user.click(screen.getByRole("button", { name: "Save venue" }));
+
+    const summaryText = await screen.findByText(/problems/);
+    const summary = summaryText.closest('[role="alert"]');
+    expect(summary?.querySelector("a")?.getAttribute("href")).toBe("#name");
+    expect(document.activeElement).toBe(screen.getByLabelText("Venue name", { exact: true }));
+  });
+
+  it("resets the edits when Cancel is used", async () => {
+    const user = userEvent.setup();
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={saveSpy()} />);
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.getAttribute("disabled")).not.toBeNull();
+
+    fill("Maximum capacity", "320");
+    expect(cancel.getAttribute("disabled")).toBeNull();
+    await user.click(cancel);
+
+    expect(valueOf("Maximum capacity")).toBe("300");
+    expect(cancel.getAttribute("disabled")).not.toBeNull();
+  });
+
+  it("reports through onDirtyChange once a field differs from its mount default", async () => {
+    const onDirtyChange = vi.fn<(dirty: boolean) => void>();
+    render(
+      <VenueForm
+        layouts={INITIAL_ROOM_LAYOUTS}
+        initial={harbourHall}
+        onSave={saveSpy()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    fill("Maximum capacity", "320");
+
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenCalledWith(true);
+    });
   });
 });
 

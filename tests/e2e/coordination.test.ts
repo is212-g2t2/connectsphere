@@ -113,11 +113,11 @@ test("a Lead assigns an unassigned request at once and notifies the Coordinator 
     await page.goto("/coordination");
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
-    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assign coordinator" })).toBeVisible();
     await page.locator("#lead-assignment-coordinator").click();
     await page.getByRole("option", { name: coordinator.email }).click();
-    await page.getByRole("button", { name: "Assign Coordinator" }).click();
-    await expect(page.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
+    await page.getByRole("button", { name: "Assign coordinator" }).click();
+    await expect(page.getByRole("button", { name: "Reassign coordinator" })).toBeVisible();
 
     const [stored] = await database
       .select()
@@ -182,10 +182,10 @@ test("a Lead reassigns immediately and notifies the outgoing, incoming and Organ
     await signInAsStaff(page, "event_coordinator_lead");
     await page.goto(`/events/${request.id}`);
     await waitForHydration(page);
-    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assign coordinator" })).toBeVisible();
     await page.locator("#lead-assignment-coordinator").click();
     await page.getByRole("option", { name: incoming.email }).click();
-    await page.getByRole("button", { name: "Reassign Coordinator" }).click();
+    await page.getByRole("button", { name: "Reassign coordinator" }).click();
     // The move commits before the page re-reads; the current holder then names the incoming one.
     await expect(page.getByRole("link", { name: incoming.email })).toBeVisible();
 
@@ -256,8 +256,8 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
     await waitForHydration(page);
     await expect(page.getByText("unassigned request", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Request details" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Assign Coordinator" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assign coordinator" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Assign coordinator" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Assign to me" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Hand over this request" })).toHaveCount(0);
 
@@ -329,8 +329,8 @@ test("a Lead oversees every Coordinator's assigned events and opens one read-onl
     await coordinatorRow.getByRole("link", { name: active.eventName }).click();
     await waitForHydration(page);
     await expect(page.getByRole("heading", { name: active.eventName })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assign coordinator" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reassign coordinator" })).toBeVisible();
     for (const action of [
       "Take up for review",
       "Record a decision",
@@ -412,10 +412,10 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
 
     await organiserPage.goto(`/events/${request.id}`);
     await waitForHydration(organiserPage);
-    await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
-    await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
-    await organiserPage.getByLabel("Expected attendance (required)").fill("120");
-    await chooseSelectValue(organiserPage, "Room-layout preference (required)", "Classroom");
+    await expect(organiserPage.getByLabel("Event name")).toBeDisabled();
+    await expect(organiserPage.getByLabel("Purpose")).toBeDisabled();
+    await organiserPage.getByLabel("Expected attendance").fill("120");
+    await chooseSelectValue(organiserPage, "Room-layout preference", "Classroom");
     await organiserPage.getByLabel("Your reply").fill(reply);
     await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
     await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
@@ -437,11 +437,11 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await page.reload();
     await expect(page.getByText(question, { exact: true })).toBeVisible();
     await expect(page.getByText(reply, { exact: true })).toBeVisible();
-    // Show the shared requirements to the Coordinator. The venue section labels the layout
-    // "Layout"; the request form calls it "Room-layout preference".
-    await expect(fieldValue(page.getByRole("region", { name: "Venue" }), "Layout")).toHaveText(
-      "Classroom"
-    );
+    // Show the shared requirements to the Coordinator. The venue card keeps the booking, so the
+    // request detail carries the layout under its form label.
+    await expect(
+      fieldValue(page.getByRole("region", { name: "Request details" }), "Room-layout preference")
+    ).toHaveText("Classroom");
     await expect(page.getByRole("button", { name: "Send reply", exact: true })).toHaveCount(0);
     await organiserPage.reload();
     await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();

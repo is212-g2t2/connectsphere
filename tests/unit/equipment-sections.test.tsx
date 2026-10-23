@@ -163,8 +163,9 @@ describe("equipment sections", () => {
       )
     );
 
-    expect(defs.map(def => def.id)).toEqual(["lines", "arrangements", "availability"]);
+    expect(defs.map(def => def.id)).toEqual(["lines", "availability", "arrangements"]);
     expect(screen.getByRole("heading", { name: "Equipment lines" })).toBeTruthy();
+    expect(screen.getByText("0 of 1 lines arranged")).toBeTruthy();
     expect(screen.getByText("Power extension")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Technical arrangements" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark arrangements complete" })).toBeTruthy();
@@ -192,6 +193,38 @@ describe("equipment sections", () => {
       })
     );
     expect(screen.getAllByText("Window changed")).toHaveLength(1);
+  });
+
+  it("hides Reserve on a reserved line and surfaces Reduce or release", () => {
+    renderSections(
+      page(
+        "technical_support",
+        {
+          name: "Community Hack Night",
+          equipment: [
+            {
+              id: "line-a",
+              item: "Power extension",
+              quantity: 4,
+              arrangementStatus: "reserved",
+              notes: null,
+              arrangeable: true,
+              assignedStaffName: null,
+              reservedQuantity: 4,
+              lastRelease: null,
+            },
+          ],
+          equipmentArrangementsCompletedAt: null,
+        },
+        {
+          equipmentTypes: [{ id: 1, name: "Power extension" }],
+        }
+      )
+    );
+
+    expect(screen.getByText("1 of 1 lines arranged")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Reserve/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Reduce or release/ })).toBeTruthy();
   });
 
   it("shows technical support the completion once recorded", () => {

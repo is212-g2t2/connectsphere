@@ -101,7 +101,7 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
     ).toBe("pending");
 
     // AC2: include a reason, suggested venue, date, and times.
-    await page.getByLabel("Reason for rejection (required)").fill(reason);
+    await page.getByLabel("Reason for rejection").fill(reason);
     await page.getByLabel("Suggested venue").click();
     await page.getByRole("option", { name: alternativeName }).click();
     await page.getByLabel("Suggested date").fill("2037-10-14");

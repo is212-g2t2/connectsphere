@@ -1,9 +1,18 @@
 import { useRouter } from "@tanstack/react-router";
+import { Bell } from "lucide-react";
 import { toast } from "sonner";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Badge } from "#/components/ui/badge";
-import { Button } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "#/components/ui/empty";
 import { formatInstant } from "#/features/event-requests/format";
 import type { MarkNotificationsReadValues } from "#/features/notifications/schema";
 import { markNotificationsRead } from "#/features/notifications/server-fns";
@@ -91,7 +100,20 @@ export function NotificationsPage({
       />
 
       {notifications.length === 0 ? (
-        <p className="body-sm text-muted-foreground">No notifications yet.</p>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Bell />
+            </EmptyMedia>
+            <EmptyTitle>No notifications yet</EmptyTitle>
+            <EmptyDescription>Updates about your events land here, newest first.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <a href="/dashboard" className={buttonVariants({ size: "sm" })}>
+              Your events
+            </a>
+          </EmptyContent>
+        </Empty>
       ) : (
         <ul className="divide-y divide-border">
           {notifications.map(notification => {

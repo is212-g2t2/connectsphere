@@ -23,16 +23,19 @@ vi.mock("#/lib/auth-client", () => ({
         .fn<() => Promise<{ data: null; error: null }>>()
         .mockResolvedValue({ data: null, error: null }),
     },
+    sendVerificationEmail: vi
+      .fn<() => Promise<{ data: null; error: null }>>()
+      .mockResolvedValue({ data: null, error: null }),
   },
 }));
 
-// Both labels match `/password/i`, so each query uses an exact label.
+// The password and confirm-password labels share text, so the password query stays exact and the
+// confirm query uses its own label.
 const labels = {
   name: /^name$/i,
   email: /^email$/i,
   password: /^password$/i,
   confirmPassword: /^confirm password$/i,
-  role: /^role$/i,
 };
 
 const VALID = {
@@ -41,17 +44,21 @@ const VALID = {
   password: "long-enough-pass1!",
 };
 
-/** Fill every field with valid data. A test only needs to set the value it wants to make invalid.
- * `confirmPassword` matches `password` unless a test overrides it.
+type RoleChoice = "attendee" | "event_organiser" | null;
+
+/** Fill every field with valid data. A test only sets the value it wants to make invalid.
+ * `confirmPassword` matches `password` unless a test overrides it. Pass `role: null` to leave the
+ * choice empty.
  */
 async function fillSignupForm(
   user: ReturnType<typeof userEvent.setup>,
-  overrides: Partial<typeof VALID & { confirmPassword: string }> = {}
+  overrides: Partial<typeof VALID & { confirmPassword: string }> & { role?: RoleChoice } = {}
 ): Promise<void> {
+  const { role = "attendee", ...rest } = overrides;
   const values = {
     ...VALID,
-    confirmPassword: overrides.password ?? VALID.password,
-    ...overrides,
+    confirmPassword: rest.password ?? VALID.password,
+    ...rest,
   };
 
   // Type in order because user-event dispatches real keystrokes. Parallel typing would interleave
@@ -66,10 +73,15 @@ async function fillSignupForm(
   await type(labels.email, values.email);
   await type(labels.password, values.password);
   await type(labels.confirmPassword, values.confirmPassword);
+  if (role) {
+    await user.click(
+      screen.getByRole("radio", { name: new RegExp(role.replaceAll("_", " "), "i") })
+    );
+  }
 }
 
 describe("SignupForm component", () => {
-  it("renders name, email, password, confirm password, role inputs and create account button", () => {
+  it("renders name, email, password, confirm password, role choices and create account button", () => {
     render(<SignupForm />);
 
     expect(screen.getByText("Create an account")).toBeTruthy();
@@ -77,9 +89,25 @@ describe("SignupForm component", () => {
     expect(screen.getByLabelText(labels.email)).toBeTruthy();
     expect(screen.getByLabelText(labels.password)).toBeTruthy();
     expect(screen.getByLabelText(labels.confirmPassword)).toBeTruthy();
-    expect(screen.getByLabelText(labels.role)).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /attendee/i })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /event organiser/i })).toBeTruthy();
+    expect(screen.getByText(/You cannot change this later/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /create account/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /sign in/i })).toBeTruthy();
+  });
+
+  it("requires an explicit role choice instead of defaulting to attendee", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user, { role: null });
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Choose a role")).toBeTruthy();
+    });
+    expect(authClient.signUp.email).not.toHaveBeenCalled();
   });
 
   it("shows validation error when submitting an invalid email", async () => {
@@ -156,7 +184,24 @@ describe("SignupForm component", () => {
     expect(authClient.signUp.email).not.toHaveBeenCalled();
   });
 
-  it("creates an account with a trimmed name and the default attendee role", async () => {
+  it("reveals both passwords without submitting the form", async () => {
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    expect(screen.getByLabelText(labels.password).getAttribute("type")).toBe("password");
+    const toggles = screen.getAllByRole("button", { name: /show password/i });
+    expect(toggles).toHaveLength(2);
+    for (const toggle of toggles) {
+      expect(toggle.getAttribute("type")).toBe("button");
+    }
+
+    await user.click(toggles[0]);
+
+    expect(screen.getByLabelText(labels.password).getAttribute("type")).toBe("text");
+    expect(screen.getByLabelText(labels.confirmPassword).getAttribute("type")).toBe("password");
+  });
+
+  it("creates an account with a trimmed name and the chosen attendee role", async () => {
     const { authClient } = await import("#/lib/auth-client");
     const user = userEvent.setup();
     render(<SignupForm />);
@@ -179,10 +224,11 @@ describe("SignupForm component", () => {
     const user = userEvent.setup();
     render(<SignupForm />);
 
-    await fillSignupForm(user, { name: "Grace Hopper", email: "organiser@example.com" });
-
-    await user.click(screen.getByLabelText(labels.role));
-    await user.click(await screen.findByRole("option", { name: /event organiser/i }));
+    await fillSignupForm(user, {
+      name: "Grace Hopper",
+      email: "organiser@example.com",
+      role: "event_organiser",
+    });
 
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
@@ -212,6 +258,25 @@ describe("SignupForm component", () => {
     // Without this step, the navigation still shows the user as signed out.
     await waitFor(() => {
       expect(mockInvalidate).toHaveBeenCalled();
+    });
+  });
+
+  it("resends the verification email from the verification panel", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await screen.findByText("Check your email");
+    await user.click(screen.getByRole("button", { name: /resend verification email/i }));
+
+    await waitFor(() => {
+      expect(authClient.sendVerificationEmail).toHaveBeenCalledWith({
+        email: "newuser@example.com",
+      });
+      expect(screen.getByText(/check your inbox/i)).toBeTruthy();
     });
   });
 

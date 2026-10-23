@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Header } from "#/components/layout/header";
@@ -64,6 +64,13 @@ async function openAccountMenu(visitor: ReturnType<typeof userEvent.setup>) {
   return visitor;
 }
 
+async function openMobileMenu(visitor: ReturnType<typeof userEvent.setup>) {
+  await visitor.click(screen.getByRole("button", { name: "Menu" }));
+  // The menu popup mounts asynchronously for floating-ui positioning. Wait for it.
+  await screen.findByRole("menuitem", { name: "Dashboard" });
+  return visitor;
+}
+
 /** PTR-73: the nav is a pure function of the session the router already resolved. These
  * assertions stand against the regression where the component asks Better Auth on the client.
  * That answer arrives only after hydration. The header rendered signed-out, then shifted.
@@ -116,16 +123,18 @@ describe("Header component", () => {
     expect(screen.getByText("O")).toBeTruthy();
   });
 
-  it("omits the signed-in controls when context carries no user", () => {
+  it("omits the signed-in controls, Dashboard, and Menu when context carries no user", () => {
     useRouteContext.mockReturnValue({ user: null, unreadNotifications: 0 });
 
     render(<Header />);
 
     expect(screen.queryByRole("button", { name: "Account menu" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
   });
 
-  it("renders no section links for an attendee", () => {
+  it("renders Dashboard without section links for an attendee", () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "attendee" },
       unreadNotifications: 0,
@@ -133,11 +142,12 @@ describe("Header component", () => {
 
     render(<Header />);
 
+    expect(screen.getByRole("link", { name: "Dashboard" })).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });
 
-  it("keeps the role nav scrollable on narrow screens", () => {
+  it("hides the desktop section strip below md and keeps it scrollable above", () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "event_coordinator" },
       unreadNotifications: 0,
@@ -146,7 +156,8 @@ describe("Header component", () => {
     render(<Header />);
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    expect(nav.getAttribute("class")).not.toContain("hidden");
+    expect(nav.getAttribute("class")).toContain("hidden");
+    expect(nav.getAttribute("class")).toContain("md:flex");
     expect(nav.getAttribute("class")).toContain("overflow-x-auto");
   });
 
@@ -164,6 +175,165 @@ describe("Header component", () => {
     );
     expect(screen.getByRole("link", { name: "Venues" }).getAttribute("aria-current")).toBeNull();
   });
+
+  it("matches the most specific section: layouts and calendar win over the venue index", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "venue_staff" },
+      unreadNotifications: 0,
+    });
+
+    const { rerender } = render(<Header />);
+    expect(screen.getByRole("link", { name: "Venues" }).getAttribute("aria-current")).toBeNull();
+
+    useLocation.mockReturnValue({ pathname: "/venues/7" });
+    rerender(<Header />);
+    expect(screen.getByRole("link", { name: "Venues" }).getAttribute("aria-current")).toBe("page");
+    expect(
+      screen.getByRole("link", { name: "Venue calendar" }).getAttribute("aria-current")
+    ).toBeNull();
+
+    useLocation.mockReturnValue({ pathname: "/venues/availability" });
+    rerender(<Header />);
+    expect(screen.getByRole("link", { name: "Venue calendar" }).getAttribute("aria-current")).toBe(
+      "page"
+    );
+    expect(screen.getByRole("link", { name: "Venues" }).getAttribute("aria-current")).toBeNull();
+
+    useLocation.mockReturnValue({ pathname: "/venues/layouts" });
+    rerender(<Header />);
+    expect(screen.getByRole("link", { name: "Room layouts" }).getAttribute("aria-current")).toBe(
+      "page"
+    );
+    expect(screen.getByRole("link", { name: "Venues" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("keeps Event requests active on its child routes and Dashboard on its own page", () => {
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
+
+    useLocation.mockReturnValue({ pathname: "/event-requests/new" });
+    const { rerender } = render(<Header />);
+    expect(screen.getByRole("link", { name: "Event requests" }).getAttribute("aria-current")).toBe(
+      "page"
+    );
+
+    useLocation.mockReturnValue({ pathname: "/dashboard" });
+    rerender(<Header />);
+    expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("aria-current")).toBe(
+      "page"
+    );
+  });
+
+  it("styles the active section with ink text and a 2px underline", () => {
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
+
+    render(<Header />);
+
+    const dashboard = screen.getByRole("link", { name: "Dashboard" });
+    expect(dashboard.getAttribute("class")).toContain("aria-[current=page]:text-foreground");
+    expect(dashboard.getAttribute("class")).toContain("aria-[current=page]:underline");
+    expect(dashboard.getAttribute("class")).toContain("aria-[current=page]:decoration-2");
+  });
+
+  it("raises the icon hit areas to 44px without enlarging the icons", () => {
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Notifications" }).getAttribute("class")).toContain(
+      "size-11"
+    );
+    expect(screen.getByRole("button", { name: "Menu" }).getAttribute("class")).toContain("size-11");
+    expect(screen.getByRole("button", { name: "Account menu" }).getAttribute("class")).toContain(
+      "size-11"
+    );
+  });
+});
+
+describe("Header mobile menu", () => {
+  it("lists every permitted destination plus Dashboard for venue staff", async () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "venue_staff" },
+      unreadNotifications: 0,
+    });
+    const visitor = userEvent.setup();
+
+    render(<Header />);
+    await openMobileMenu(visitor);
+
+    for (const name of [
+      "Dashboard",
+      "Venues",
+      "Venue calendar",
+      "Room layouts",
+      "Approved bookings",
+      "Hold requests",
+    ]) {
+      expect(screen.getByRole("menuitem", { name })).toBeTruthy();
+    }
+    expect(screen.queryByRole("menuitem", { name: "Coordination" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Event requests" })).toBeNull();
+  });
+
+  it("lists only Dashboard for an attendee", async () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "attendee" },
+      unreadNotifications: 0,
+    });
+    const visitor = userEvent.setup();
+
+    render(<Header />);
+    await openMobileMenu(visitor);
+
+    expect(screen.getByRole("menuitem", { name: "Dashboard" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Venues" })).toBeNull();
+  });
+
+  it("hides the Menu button from signed-out visitors", () => {
+    useRouteContext.mockReturnValue({ user: null, unreadNotifications: 0 });
+
+    render(<Header />);
+
+    expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
+  });
+
+  it("groups the logo and Dashboard in one left container", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "attendee" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    const dashboard = screen.getByRole("link", { name: "Dashboard" });
+    const logo = screen.getByRole("link", { name: "ConnectSphere" });
+    const group = dashboard.parentElement;
+    expect(logo.parentElement).toBe(group);
+    // The old markup left the logo and Dashboard as loose siblings of the header bar.
+    expect(group?.children).toHaveLength(2);
+    expect(group?.getAttribute("class")).toContain("gap-5");
+  });
+
+  it("gives the mobile menu its own navigation landmark outside the Account nav", async () => {
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
+    useLocation.mockReturnValue({ pathname: "/dashboard" });
+    const visitor = userEvent.setup();
+
+    render(<Header />);
+
+    const menuNav = screen.getByRole("navigation", { name: "Menu" });
+    expect(menuNav.getAttribute("class")).toContain("md:hidden");
+    expect(within(menuNav).getByRole("button", { name: "Menu" })).toBeTruthy();
+    const accountNav = screen.getByRole("navigation", { name: "Account" });
+    expect(within(accountNav).queryByRole("button", { name: "Menu" })).toBeNull();
+
+    // The current destination reads as current in the mobile menu too. The menu item carries the
+    // link, so the current mark and marker sit on the item itself.
+    await visitor.click(screen.getByRole("button", { name: "Menu" }));
+    const item = await screen.findByRole("menuitem", { name: "Dashboard" });
+    expect(item.getAttribute("href")).toBe("/dashboard");
+    expect(item.getAttribute("aria-current")).toBe("page");
+    expect(item.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
 });
 
 describe("Header role links", () => {
@@ -175,6 +345,7 @@ describe("Header role links", () => {
 
     render(<Header />);
 
+    expect(screen.getByRole("link", { name: "Dashboard" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Event requests" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
@@ -188,6 +359,7 @@ describe("Header role links", () => {
 
     render(<Header />);
 
+    expect(screen.getByRole("link", { name: "Dashboard" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Coordination" }).getAttribute("href")).toBe(
       "/coordination"
     );
@@ -195,6 +367,7 @@ describe("Header role links", () => {
     expect(screen.getByRole("link", { name: "Venue calendar" }).getAttribute("href")).toBe(
       "/venues/availability"
     );
+    expect(screen.queryByRole("link", { name: "Room layouts" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Hold requests" })).toBeNull();
@@ -217,7 +390,7 @@ describe("Header role links", () => {
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
   });
 
-  it("renders Venues, Venue calendar, Approved bookings and Hold requests for venue staff", () => {
+  it("renders Venues, Venue calendar, Room layouts, Approved bookings and Hold requests for venue staff", () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "venue_staff" },
       unreadNotifications: 0,
@@ -227,6 +400,9 @@ describe("Header role links", () => {
 
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Room layouts" }).getAttribute("href")).toBe(
+      "/venues/layouts"
+    );
     expect(screen.getByRole("link", { name: "Approved bookings" }).getAttribute("href")).toBe(
       "/venue-bookings"
     );
@@ -238,7 +414,7 @@ describe("Header role links", () => {
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });
 
-  it("renders Venues and Venue calendar for technical support staff", () => {
+  it("renders Venues and Venue calendar without Room layouts for technical support staff", () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "technical_support_staff" },
       unreadNotifications: 0,
@@ -248,6 +424,7 @@ describe("Header role links", () => {
 
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Room layouts" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Hold requests" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
