@@ -1,9 +1,16 @@
 import { and, asc, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
+import {
+  clarificationRequests,
+  eventRequestAttachments,
+  eventRequests,
+  user as users,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { removeAttachmentObjects } from "#/features/event-requests/attachments.server";
+import type { AttachmentStorage } from "#/features/event-requests/attachments.server";
 import {
   cancellationRequestedSql,
   listEventCancellationRequests,
@@ -16,12 +23,14 @@ import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
+  EVENT_REQUEST_REUSE_REFUSAL,
   SUBMITTED_EDIT_REFUSAL,
   missingFieldsMessage,
   missingRequiredFields,
   parseDraftInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
+import { isReusableEventRequest } from "#/features/event-requests/reuse";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
@@ -174,7 +183,7 @@ export async function handleSubmitEventRequest(
       throw new ConflictError(ALREADY_SUBMITTED_MESSAGE);
     }
 
-    const missing = missingRequiredFields(draft);
+    const missing = missingRequiredFields(draft, { requireListedDetails: true });
     if (missing.length > 0) {
       throw new Error(missingFieldsMessage(missing));
     }
@@ -302,24 +311,93 @@ export async function handleGetEventRequestDraft(
 /**
  * Criterion 3: Delete the Organiser's draft. Use `ownDraft` so a submitted request cannot be
  * deleted. This matches `handleSaveEventRequestDraft`'s distinction between another user's row
- * and an owned row that is no longer a draft.
+ * and an owned row that is no longer a draft. The event row is locked first, so a concurrent
+ * upload serialises with this delete: either its attachment is in the key read, or its own
+ * transaction finds no draft and removes its object. The foreign key removes the attachment rows
+ * with the draft; their objects are deleted after the deletion commits. A failed object delete is
+ * logged and never fails the delete.
  */
 export async function handleDeleteEventRequestDraft(
+  data: unknown,
+  user: SessionUser,
+  database: Database,
+  storage: AttachmentStorage | null
+): Promise<EventRequest> {
+  const { id } = parseEventRequestId(data);
+
+  const { deleted, objectKeys } = await database.transaction(async tx => {
+    const ownRows = await tx
+      .select({ id: eventRequests.id })
+      .from(eventRequests)
+      .where(and(eq(eventRequests.id, id), eq(eventRequests.organiserId, user.id)))
+      .for("update");
+
+    if (ownRows.length === 0) throw new AuthorizationError("Forbidden");
+
+    // Read the keys under the lock; the cascade leaves no rows to read after the delete.
+    const attachments = await tx
+      .select({ objectKey: eventRequestAttachments.objectKey })
+      .from(eventRequestAttachments)
+      .where(eq(eventRequestAttachments.eventRequestId, id));
+
+    const removed = await tx.delete(eventRequests).where(ownDraft(id, user.id)).returning();
+
+    if (removed.length === 0) throw new ConflictError(EVENT_REQUEST_DELETE_REFUSAL);
+
+    return {
+      deleted: removed[0],
+      objectKeys: attachments.map(attachment => attachment.objectKey),
+    };
+  });
+
+  await removeAttachmentObjects(storage, objectKeys);
+
+  return deleted;
+}
+
+/**
+ * PTR-154: Copy the Organiser's past request into a new draft. Copy the repeatable details
+ * (AC1) and leave dates, registration, and every decided or arranged value behind (AC2).
+ * Insert a new row, so the source row stays unchanged (AC4). Refuse another Organiser's row
+ * like the other readers do (AC3), and refuse a request that is not past with 409.
+ */
+export async function handleReuseEventRequest(
   data: unknown,
   user: SessionUser,
   database: Database
 ): Promise<EventRequest> {
   const { id } = parseEventRequestId(data);
 
-  const deleted = await database.delete(eventRequests).where(ownDraft(id, user.id)).returning();
+  const rows = await database.select().from(eventRequests).where(ownRequest(id, user.id));
+  const source = rows.at(0);
+  if (!source) throw new AuthorizationError("Forbidden");
 
-  if (deleted.length === 0) {
-    if (await ownRowExists(id, user.id, database)) {
-      throw new ConflictError(EVENT_REQUEST_DELETE_REFUSAL);
-    }
-
-    throw new AuthorizationError("Forbidden");
+  if (!isReusableEventRequest(source)) {
+    throw new ConflictError(EVENT_REQUEST_REUSE_REFUSAL);
   }
 
-  return deleted[0];
+  const [draft] = await database
+    .insert(eventRequests)
+    .values({
+      organiserId: user.id,
+      status: "draft",
+      eventName: source.eventName,
+      purpose: source.purpose,
+      proposedDates: [],
+      expectedAttendance: source.expectedAttendance,
+      description: source.description,
+      eventType: "",
+      venueRequirements: source.venueRequirements,
+      roomLayoutPreference: source.roomLayoutPreference,
+      accessibilityRequirements: source.accessibilityRequirements,
+      equipmentRequirements: source.equipmentRequirements,
+      specialArrangements: "",
+      registrationEnabled: false,
+      registrationCapacity: null,
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+    })
+    .returning();
+
+  return draft;
 }

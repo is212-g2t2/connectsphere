@@ -155,6 +155,30 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venueRequests).createdAt.name).toBe("created_at");
   });
 
+  it("defines the draft attachment columns, size checks, and event index", () => {
+    const columns = getTableColumns(schema.eventRequestAttachments);
+    expect(columns.eventRequestId.name).toBe("event_request_id");
+    expect(columns.eventRequestId.notNull).toBe(true);
+    expect(columns.objectKey.name).toBe("object_key");
+    expect(columns.originalFilename.name).toBe("original_filename");
+    expect(columns.contentType.name).toBe("content_type");
+    expect(columns.sizeBytes.name).toBe("size_bytes");
+    expect(columns.uploadedById.name).toBe("uploaded_by_id");
+    expect(columns.uploadedById.notNull).toBe(false);
+    const config = getTableConfig(schema.eventRequestAttachments);
+    expect(config.checks.map(check => check.name)).toContain(
+      "event_request_attachments_size_positive"
+    );
+    expect(config.checks.map(check => check.name)).toContain(
+      "event_request_attachments_size_limit"
+    );
+    expect(
+      config.indexes.some(
+        index => index.config.name === "event_request_attachments_event_request_id_idx"
+      )
+    ).toBe(true);
+  });
+
   it("defines the venue hold columns and status enum (PTR-109)", () => {
     expect([...schema.venueHoldStatus.enumValues]).toEqual([
       "held",

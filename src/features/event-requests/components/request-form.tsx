@@ -14,11 +14,19 @@ import {
   FieldSet,
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
 import {
   CLARIFICATION_TEXT_MAX,
   ClarificationReplyBodyInput,
   EventRequestDraftFormInput,
+  LISTED_DETAIL_FIELDS,
   missingRequiredFields,
 } from "#/features/event-requests/schema";
 import type {
@@ -57,14 +65,343 @@ export interface EventRequestFormSubmitContext {
   replyBody: string;
 }
 
-const OPTIONAL_TEXT_FIELDS = [
-  ["description", "Description"],
-  ["eventType", "Type of event"],
-  ["venueRequirements", "Venue requirements"],
-  ["roomLayoutPreference", "Room-layout preference"],
-  ["accessibilityRequirements", "Accessibility requirements"],
-  ["specialArrangements", "Special arrangements"],
+/**
+ * PTR-155: these details are required at submission, but a draft may leave them blank.
+ * `control` picks the input; the option lists are the vocabulary the Coordinator reads.
+ */
+const EVENT_TYPE_OPTIONS = ["Workshop", "Meeting", "Training", "Social", "Conference"] as const;
+
+const ROOM_LAYOUT_OPTIONS = [
+  "Theatre",
+  "Classroom",
+  "Boardroom",
+  "Banquet",
+  "Exhibition",
+  "U-shape",
+  "Cabaret",
 ] as const;
+
+const VENUE_REQUIREMENT_OPTIONS = [
+  "Power outlets",
+  "Natural light",
+  "Air conditioning",
+  "Projector and screen",
+  "Sound system",
+  "Parking",
+  "Kitchen access",
+  "Outdoor space",
+] as const;
+
+const ACCESSIBILITY_OPTIONS = [
+  "Step-free access",
+  "Accessible toilet",
+  "Wheelchair space",
+  "Hearing loop",
+  "Quiet room",
+  "Sign-language interpreter",
+] as const;
+
+const VALUE_SEPARATOR = "; ";
+
+type TextFieldName =
+  | "eventType"
+  | "description"
+  | "venueRequirements"
+  | "roomLayoutPreference"
+  | "accessibilityRequirements"
+  | "specialArrangements";
+
+interface TextField {
+  name: TextFieldName;
+  label: string;
+  required: boolean;
+  control: "textarea" | "select" | "checkboxes";
+  options?: readonly string[];
+  /** The option that clears every other choice. */
+  exclusiveOption?: string;
+  description?: string;
+  rows?: number;
+}
+
+type TextFieldShape = Omit<TextField, "name">;
+
+const TEXT_FIELDS = {
+  eventType: {
+    label: "Type of event",
+    required: false,
+    control: "select",
+    options: EVENT_TYPE_OPTIONS,
+  },
+  description: {
+    label: "Description",
+    required: true,
+    control: "textarea",
+  },
+  venueRequirements: {
+    label: "Venue requirements",
+    required: true,
+    control: "checkboxes",
+    options: VENUE_REQUIREMENT_OPTIONS,
+    exclusiveOption: "No special requirements",
+    description: "Choose every facility the event needs.",
+  },
+  roomLayoutPreference: {
+    label: "Room-layout preference",
+    required: true,
+    control: "select",
+    options: ROOM_LAYOUT_OPTIONS,
+  },
+  accessibilityRequirements: {
+    label: "Accessibility requirements",
+    required: true,
+    control: "checkboxes",
+    options: ACCESSIBILITY_OPTIONS,
+    exclusiveOption: "None",
+    description: "Choose None if there are no accessibility needs.",
+  },
+  specialArrangements: {
+    label: "Special arrangements",
+    required: false,
+    control: "textarea",
+    rows: 2,
+  },
+} as const satisfies Record<TextFieldName, TextFieldShape>;
+
+/** Attach the key as the field name, so a caller cannot name a field outside the table. */
+function textField(name: TextFieldName): TextField {
+  return { name, ...TEXT_FIELDS[name] };
+}
+
+/** A checkbox group whose value stays one string, joined with `VALUE_SEPARATOR`. */
+function CheckboxGroupControl({
+  id,
+  label,
+  value,
+  options,
+  exclusiveOption,
+  disabled,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: readonly string[];
+  exclusiveOption?: string;
+  disabled: boolean;
+  invalid: boolean;
+  onChange: (value: string) => void;
+}) {
+  const parts = value === "" ? [] : value.split(VALUE_SEPARATOR);
+  const known = new Set<string>(options);
+  const selected = parts.filter(part => known.has(part) || part === exclusiveOption);
+  const storedOther = parts
+    .filter(part => !known.has(part) && part !== exclusiveOption)
+    .join(VALUE_SEPARATOR);
+  const [otherOpen, setOtherOpen] = useState(storedOther !== "");
+  const [otherText, setOtherText] = useState(storedOther);
+
+  const commit = (nextSelected: readonly string[], nextOther: string) => {
+    const trimmed = nextOther.trim();
+    const next: string[] = [];
+    // Keep the stored order for values that survive; append newly chosen options.
+    for (const part of parts) {
+      if (part === exclusiveOption || known.has(part)) {
+        if (nextSelected.includes(part) && !next.includes(part)) next.push(part);
+      } else if (trimmed !== "" && !next.includes(trimmed)) {
+        next.push(trimmed);
+      }
+    }
+    for (const option of nextSelected) {
+      if (!next.includes(option)) next.push(option);
+    }
+    if (trimmed !== "" && !next.includes(trimmed)) next.push(trimmed);
+    onChange(next.join(VALUE_SEPARATOR));
+  };
+
+  const toggle = (option: string, checked: boolean) => {
+    if (!checked) {
+      commit(
+        selected.filter(item => item !== option),
+        otherText
+      );
+      return;
+    }
+    if (option === exclusiveOption) {
+      setOtherOpen(false);
+      setOtherText("");
+      onChange(option);
+      return;
+    }
+    commit([...selected.filter(item => item !== exclusiveOption), option], otherText);
+  };
+
+  const toggleOther = (checked: boolean) => {
+    setOtherOpen(checked);
+    if (!checked) {
+      setOtherText("");
+      commit(
+        selected.filter(item => item !== exclusiveOption),
+        ""
+      );
+      return;
+    }
+    if (exclusiveOption !== undefined && selected.includes(exclusiveOption)) {
+      commit([], "");
+    }
+  };
+
+  const changeOther = (text: string) => {
+    setOtherText(text);
+    commit(
+      selected.filter(item => item !== exclusiveOption),
+      text
+    );
+  };
+
+  return (
+    <div data-slot="checkbox-group" className="grid gap-3 sm:grid-cols-2">
+      {options.map((option, index) => {
+        const optionId = `${id}-option-${index}`;
+        return (
+          <Field key={option} orientation="horizontal">
+            <Checkbox
+              id={optionId}
+              checked={selected.includes(option)}
+              disabled={disabled}
+              onCheckedChange={checked => toggle(option, checked)}
+            />
+            <FieldLabel htmlFor={optionId}>{option}</FieldLabel>
+          </Field>
+        );
+      })}
+      {exclusiveOption !== undefined && (
+        <Field orientation="horizontal">
+          <Checkbox
+            id={`${id}-none`}
+            checked={selected.includes(exclusiveOption)}
+            disabled={disabled}
+            onCheckedChange={checked => toggle(exclusiveOption, checked)}
+          />
+          <FieldLabel htmlFor={`${id}-none`}>{exclusiveOption}</FieldLabel>
+        </Field>
+      )}
+      <Field orientation="horizontal">
+        <Checkbox
+          id={`${id}-other`}
+          checked={otherOpen || otherText !== ""}
+          disabled={disabled}
+          onCheckedChange={checked => toggleOther(checked)}
+        />
+        <FieldLabel htmlFor={`${id}-other`}>Other</FieldLabel>
+      </Field>
+      {otherOpen && (
+        <Textarea
+          id={`${id}-other-text`}
+          className="min-h-0 sm:col-span-2"
+          rows={2}
+          aria-label={`${label}: other`}
+          placeholder="Describe it"
+          value={otherText}
+          disabled={disabled}
+          aria-invalid={invalid}
+          onChange={event => changeOther(event.target.value)}
+          onBlur={() => {
+            if (otherText.trim() === "") {
+              setOtherOpen(false);
+              commit(selected, "");
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A single-choice select that keeps free text through an "Other" item. */
+function SelectControl({
+  id,
+  label,
+  value,
+  options,
+  optional,
+  disabled,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: readonly string[];
+  optional: boolean;
+  disabled: boolean;
+  invalid: boolean;
+  onChange: (value: string) => void;
+}) {
+  const isOption = value === "" || options.includes(value);
+  const [otherOpen, setOtherOpen] = useState(!isOption);
+  const [otherText, setOtherText] = useState(isOption ? "" : value);
+
+  const handleValueChange = (next: string | null) => {
+    if (next === "__other") {
+      // Re-selecting the open Other row must not erase the text it holds.
+      if (otherOpen) return;
+      setOtherOpen(true);
+      setOtherText("");
+      onChange("");
+      return;
+    }
+    setOtherOpen(false);
+    onChange(next === null ? "" : next);
+  };
+
+  const display = otherOpen ? "Other" : value === "" ? (optional ? "Not specified" : null) : value;
+
+  return (
+    <>
+      <Select
+        value={otherOpen ? "__other" : value === "" ? null : value}
+        onValueChange={handleValueChange}
+        disabled={disabled}
+      >
+        <SelectTrigger id={id} className="w-full" aria-invalid={invalid}>
+          <SelectValue placeholder={optional ? "Not specified" : "Choose one"}>
+            {display}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(option => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+          <SelectItem value="__other">Other</SelectItem>
+          <SelectItem value={null}>{optional ? "Not specified" : "Choose one"}</SelectItem>
+        </SelectContent>
+      </Select>
+      {otherOpen && (
+        <Input
+          className="mt-2"
+          aria-label={`${label}: other`}
+          placeholder="Type the value"
+          value={otherText}
+          disabled={disabled}
+          aria-invalid={invalid}
+          onChange={event => {
+            setOtherText(event.target.value);
+            onChange(event.target.value);
+          }}
+          onBlur={() => {
+            if (otherText.trim() === "") {
+              setOtherOpen(false);
+              onChange("");
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
 
 /** Registration rows vary by name, label, and input type, like the equipment rows. */
 const REGISTRATION_FIELDS = [
@@ -199,7 +536,8 @@ function missingFieldPath(key: string, value: EventRequestFormValues): string {
 function missingFieldErrors(
   value: EventRequestFormValues,
   parsed: EventRequestDraftValues,
-  editable: (field: string) => boolean
+  editable: (field: string) => boolean,
+  replyMode: boolean
 ): Record<string, { message: string }[]> {
   const fields: Record<string, { message: string }[]> = {};
 
@@ -207,6 +545,15 @@ function missingFieldErrors(
     const key = MISSING_FIELD_KEYS[label];
     if (key === undefined || !editable(key)) continue;
     fields[missingFieldPath(key, value)] = [{ message: `${label} is required` }];
+  }
+
+  // A reply must not clear a listed detail that the Coordinator permitted. A field the
+  // Coordinator did not ask for may stay blank on a row created before PTR-155.
+  if (replyMode) {
+    for (const [key, label] of LISTED_DETAIL_FIELDS) {
+      if (!editable(key) || parsed[key].trim() !== "") continue;
+      fields[missingFieldPath(key, value)] = [{ message: `${label} is required` }];
+    }
   }
 
   return fields;
@@ -225,10 +572,12 @@ function draftValidator({
   value,
   editable,
   requireComplete,
+  replyMode,
 }: {
   value: EventRequestFormValues;
   editable: (field: string) => boolean;
   requireComplete: boolean;
+  replyMode: boolean;
 }) {
   const result = standardSchemaValidators.validate<"form">(
     { value, validationSource: "form" },
@@ -239,7 +588,7 @@ function draftValidator({
   const parsed = EventRequestDraftFormInput.safeParse(value);
   if (!parsed.success) return result;
 
-  const fields = missingFieldErrors(value, parsed.data, editable);
+  const fields = missingFieldErrors(value, parsed.data, editable, replyMode);
   if (Object.keys(fields).length === 0) return result;
 
   return { form: result?.form ?? {}, fields: { ...result?.fields, ...fields } };
@@ -300,7 +649,7 @@ export function EventRequestForm({
     defaultValues,
     validators: {
       onSubmit: ({ value }: { value: EventRequestFormValues }) =>
-        draftValidator({ value, editable, requireComplete: mustBeComplete }),
+        draftValidator({ value, editable, requireComplete: mustBeComplete, replyMode }),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -501,36 +850,75 @@ export function EventRequestForm({
     </form.Field>
   );
 
-  const renderOptionalText = (name: (typeof OPTIONAL_TEXT_FIELDS)[number][0]) => (
-    <form.Field name={name}>
-      {field => (
-        <Field data-invalid={field.state.meta.errors.length > 0}>
-          <FieldLabel htmlFor={inputId(field.name)}>
-            {OPTIONAL_TEXT_FIELDS.find(([key]) => key === name)?.[1]} (optional)
-          </FieldLabel>
-          {name === "eventType" ? (
-            <Input
-              id={inputId(field.name)}
-              disabled={!editable(name)}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={event => field.handleChange(event.target.value)}
-              aria-invalid={field.state.meta.errors.length > 0}
-            />
-          ) : (
-            <Textarea
-              id={inputId(field.name)}
-              rows={3}
-              disabled={!editable(name)}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={event => field.handleChange(event.target.value)}
-              aria-invalid={field.state.meta.errors.length > 0}
-            />
-          )}
-          <FieldError errors={field.state.meta.errors} />
-        </Field>
-      )}
+  const renderTextField = (metadata: TextField) => (
+    <form.Field name={metadata.name}>
+      {field => {
+        const id = inputId(field.name);
+        const invalid = field.state.meta.errors.length > 0;
+        const label = `${metadata.label} (${metadata.required ? "required" : "optional"})`;
+        const description = metadata.description !== undefined && (
+          <FieldDescription>{metadata.description}</FieldDescription>
+        );
+
+        if (metadata.control === "checkboxes") {
+          const describedBy = [
+            metadata.description !== undefined ? `${id}-description` : null,
+            invalid ? `${id}-error` : null,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return (
+            <FieldSet data-invalid={invalid} aria-describedby={describedBy || undefined}>
+              <FieldLegend>{label}</FieldLegend>
+              {metadata.description !== undefined && (
+                <FieldDescription id={`${id}-description`}>{metadata.description}</FieldDescription>
+              )}
+              <CheckboxGroupControl
+                id={id}
+                label={metadata.label}
+                value={field.state.value}
+                options={metadata.options ?? []}
+                exclusiveOption={metadata.exclusiveOption}
+                disabled={!editable(field.name)}
+                invalid={invalid}
+                onChange={value => field.handleChange(value)}
+              />
+              <FieldError id={`${id}-error`} errors={field.state.meta.errors} />
+            </FieldSet>
+          );
+        }
+
+        return (
+          <Field data-invalid={invalid}>
+            <FieldLabel htmlFor={id}>{label}</FieldLabel>
+            {metadata.control === "select" ? (
+              <SelectControl
+                id={id}
+                label={metadata.label}
+                value={field.state.value}
+                options={metadata.options ?? []}
+                optional={!metadata.required}
+                disabled={!editable(field.name)}
+                invalid={invalid}
+                onChange={value => field.handleChange(value)}
+              />
+            ) : (
+              <Textarea
+                id={id}
+                rows={metadata.rows ?? 3}
+                required={metadata.required}
+                disabled={!editable(field.name)}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={event => field.handleChange(event.target.value)}
+                aria-invalid={invalid}
+              />
+            )}
+            {description}
+            <FieldError errors={field.state.meta.errors} />
+          </Field>
+        );
+      }}
     </form.Field>
   );
 
@@ -597,18 +985,27 @@ export function EventRequestForm({
   const canonicalFields: { key: ClarificationField; render: () => React.ReactNode }[] = [
     { key: "eventName", render: renderEventName },
     { key: "purpose", render: renderPurpose },
-    { key: "proposedDates", render: renderProposedDates },
+    { key: "eventType", render: () => renderTextField(textField("eventType")) },
     { key: "expectedAttendance", render: renderExpectedAttendance },
-    { key: "attendeeRegistration", render: renderRegistration },
-    { key: "description", render: () => renderOptionalText("description") },
-    { key: "eventType", render: () => renderOptionalText("eventType") },
-    { key: "venueRequirements", render: () => renderOptionalText("venueRequirements") },
-    { key: "roomLayoutPreference", render: () => renderOptionalText("roomLayoutPreference") },
+    { key: "description", render: () => renderTextField(textField("description")) },
+    { key: "proposedDates", render: renderProposedDates },
+    {
+      key: "venueRequirements",
+      render: () => renderTextField(textField("venueRequirements")),
+    },
+    {
+      key: "roomLayoutPreference",
+      render: () => renderTextField(textField("roomLayoutPreference")),
+    },
     {
       key: "accessibilityRequirements",
-      render: () => renderOptionalText("accessibilityRequirements"),
+      render: () => renderTextField(textField("accessibilityRequirements")),
     },
-    { key: "specialArrangements", render: () => renderOptionalText("specialArrangements") },
+    {
+      key: "specialArrangements",
+      render: () => renderTextField(textField("specialArrangements")),
+    },
+    { key: "attendeeRegistration", render: renderRegistration },
     { key: "equipmentRequirements", render: renderEquipment },
   ];
 
@@ -737,25 +1134,46 @@ export function EventRequestForm({
       <p className="mb-4 body-sm text-muted-foreground">
         {mustBeComplete
           ? "Fields marked required must stay complete."
-          : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}
+          : "Fields marked required must be completed before you submit. A draft can keep them blank; submitting needs them filled."}
       </p>
 
       <FieldGroup>
-        {renderEventName()}
-        {renderPurpose()}
-        {renderProposedDates()}
-        {renderExpectedAttendance()}
-        {renderRegistration()}
-
-        <section
-          className="space-y-6 border-t border-border pt-6"
-          aria-label="Optional requirements"
-        >
-          <h3 className="display-h3">Additional requirements</h3>
-          {OPTIONAL_TEXT_FIELDS.map(([name]) => (
-            <Fragment key={name}>{renderOptionalText(name)}</Fragment>
-          ))}
+        <section className="space-y-6 border-t border-border pt-6" aria-label="Event details">
+          <div>
+            <h3 className="display-h3">Event details</h3>
+            <p className="mt-1 body-sm text-muted-foreground">
+              What the event is, who it is for, and how many people come.
+            </p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="md:col-span-2">{renderEventName()}</div>
+            <div className="md:col-span-2">{renderPurpose()}</div>
+            <div>{renderTextField(textField("eventType"))}</div>
+            <div>{renderExpectedAttendance()}</div>
+            <div className="md:col-span-2">{renderTextField(textField("description"))}</div>
+          </div>
         </section>
+
+        {renderProposedDates()}
+
+        <section className="space-y-6 border-t border-border pt-6" aria-label="Requirements">
+          <div>
+            <h3 className="display-h3">Requirements</h3>
+            <p className="mt-1 body-sm text-muted-foreground">
+              How the room should be set up, and what it must provide.
+            </p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="md:col-span-2">{renderTextField(textField("venueRequirements"))}</div>
+            <div>{renderTextField(textField("roomLayoutPreference"))}</div>
+            <div>{renderTextField(textField("specialArrangements"))}</div>
+            <div className="md:col-span-2">
+              {renderTextField(textField("accessibilityRequirements"))}
+            </div>
+          </div>
+        </section>
+
+        {renderRegistration()}
 
         {renderEquipment()}
 

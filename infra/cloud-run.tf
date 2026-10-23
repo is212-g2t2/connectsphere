@@ -78,6 +78,20 @@ resource "google_cloud_run_v2_service" "app" {
           value = env.value
         }
       }
+
+      # R2 settings for draft supporting documents. The bucket is created by hand in the
+      # Cloudflare dashboard; while `r2_account_id` is empty the deployed smoke check fails.
+      dynamic "env" {
+        for_each = var.r2_account_id == "" ? {} : {
+          STORAGE_BUCKET   = "connectsphere-attachments-${each.key}"
+          STORAGE_ENDPOINT = "https://${var.r2_account_id}.r2.cloudflarestorage.com"
+          STORAGE_REGION   = "auto"
+        }
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
     }
   }
 

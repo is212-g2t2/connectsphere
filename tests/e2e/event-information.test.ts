@@ -61,6 +61,10 @@ async function createApprovedEvent() {
       purpose: "Plan the forum",
       proposedDates: [{ start: "2030-01-01T09:00", end: "2030-01-01T17:00" }],
       expectedAttendance: 40,
+      description: "Annual planning forum",
+      venueRequirements: "A projector wall",
+      roomLayoutPreference: "Theatre",
+      accessibilityRequirements: "Step-free access",
       eventType: "Conference",
     })
     .returning({ id: schema.eventRequests.id });

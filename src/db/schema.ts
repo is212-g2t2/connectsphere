@@ -311,6 +311,36 @@ export const clarificationRequests = pgTable(
   ]
 );
 
+/**
+ * PTR-153: supporting documents on an Organiser's draft request. Each row points at one object
+ * in the private bucket (`objectKey`, server-generated and unique). The row stores the
+ * sanitised original name, the byte-identified content type, and the size. `onDelete: cascade`
+ * removes the rows with a deleted draft; PTR-159 removes the objects. `set null` keeps a row
+ * if the uploader's account is deleted.
+ */
+export const eventRequestAttachments = pgTable(
+  "event_request_attachments",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    objectKey: text("object_key").notNull().unique(),
+    originalFilename: text("original_filename").notNull(),
+    contentType: text("content_type").notNull(),
+    /** Byte size. The CHECKs below also apply to other writers. */
+    sizeBytes: integer("size_bytes").notNull(),
+    uploadedById: text("uploaded_by_id").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    check("event_request_attachments_size_positive", sql`${table.sizeBytes} > 0`),
+    // Matches `ATTACHMENT_MAX_BYTES` in `src/features/event-requests/attachments.ts`.
+    check("event_request_attachments_size_limit", sql`${table.sizeBytes} <= 10485760`),
+    index("event_request_attachments_event_request_id_idx").on(table.eventRequestId),
+  ]
+);
+
 /** PTR-52: what the Coordinator did with a change request. Null while the request waits. */
 export const eventChangeOutcome = pgEnum("event_change_outcome", ["applied", "declined"]);
 

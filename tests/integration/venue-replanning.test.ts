@@ -23,6 +23,7 @@ import { VENUE_BOOKING_NOT_BLOCKED_MESSAGE } from "#/features/venue-requests/sch
 import { loadBlockedArrangements } from "#/features/venues/blocked-arrangements.server";
 import { handleLiftVenueBlock, handleRecordVenueBlock } from "#/features/venues/blocks.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import type { VenueLayout } from "#/features/venues/schema";
 
 /**
  * PTR-137: a venue block takes a confirmed event back to planning, flags its suspended
@@ -120,6 +121,9 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
           name,
           location: "PTR-137 Wing",
           maxCapacity: 100,
+          facilities: ["Projector", "PA system"],
+          accessibilityFeatures: ["Step-free access"],
+          supportedLayouts: ["theatre"] as VenueLayout[],
           operatingHours: DEFAULT_OPERATING_HOURS,
         }))
       )
@@ -143,6 +147,10 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
         purpose: "Re-plan",
         proposedDates: [{ start: `${DATE}T10:00`, end: `${DATE}T12:00` }],
         expectedAttendance: 40,
+        description: "Re-planned community event",
+        venueRequirements: "Projector, PA system",
+        roomLayoutPreference: "Theatre",
+        accessibilityRequirements: "Step-free access",
         status,
         submittedAt: new Date(),
         assignedCoordinatorId: users.coordinator.id,

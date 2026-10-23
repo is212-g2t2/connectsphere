@@ -75,7 +75,10 @@ async function question(permittedFields: string[] = []) {
       eventName: "PTR19 Test Event",
       purpose: "Community workshop",
       expectedAttendance: 100,
+      description: "Community workshop with lunch",
+      venueRequirements: "Ground floor, near MRT",
       roomLayoutPreference: "Theatre",
+      accessibilityRequirements: "Step-free access",
       proposedDates: [{ start: "2026-10-23T09:00", end: "2026-10-23T17:00" }],
     })
     .returning();
@@ -159,6 +162,36 @@ describe("Organiser clarification replies", () => {
       body: input.body,
     });
   });
+  it("replies to a request created before the listed-detail rule", async () => {
+    const { request, input } = await question(["expectedAttendance"]);
+    // A row from before PTR-155: the four listed details are blank, and the request is live.
+    await database
+      .update(schema.eventRequests)
+      .set({
+        description: "",
+        venueRequirements: "",
+        roomLayoutPreference: "",
+        accessibilityRequirements: "",
+      })
+      .where(eq(schema.eventRequests.id, request.id));
+
+    const clarification = await handleReplyToClarification(
+      { ...input, amendments: { expectedAttendance: 120 } },
+      organiser,
+      database as never
+    );
+
+    expect(clarification.replyBody).toBe(input.body);
+    expect(
+      await handleGetEventRequest({ id: request.id }, organiser, database as never)
+    ).toMatchObject({
+      status: "under_review",
+      expectedAttendance: 120,
+      description: "",
+      clarifications: [expect.objectContaining({ replyBody: input.body })],
+    });
+  });
+
   it("notifies the current Coordinator after reassignment and keeps the original question author", async () => {
     const { request, input } = await question();
     await database
@@ -335,7 +368,10 @@ describe("Organiser clarification replies", () => {
         eventName: "Other PTR19 Event",
         purpose: "Private workshop",
         expectedAttendance: 40,
+        description: "Private team workshop",
+        venueRequirements: "Quiet room",
         roomLayoutPreference: "Boardroom",
+        accessibilityRequirements: "None",
         proposedDates: [{ start: "2026-10-24T09:00", end: "2026-10-24T17:00" }],
       })
       .returning();
@@ -447,6 +483,11 @@ describe("Organiser clarification replies", () => {
         permittedFields: ["eventName"],
         amendments: { eventName: "   " },
         message: "This request is missing: Event name",
+      },
+      {
+        permittedFields: ["description"],
+        amendments: { description: "   " },
+        message: "This request is missing: Description",
       },
       {
         permittedFields: ["proposedDates"],

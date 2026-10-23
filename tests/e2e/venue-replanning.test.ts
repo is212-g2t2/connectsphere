@@ -69,6 +69,9 @@ async function confirmedEventAtNewVenue() {
       name: venueName,
       location: "PTR-137 Wing",
       maxCapacity: 120,
+      facilities: ["Projector", "PA system"],
+      accessibilityFeatures: ["Step-free access"],
+      supportedLayouts: ["theatre"],
       operatingHours: DEFAULT_OPERATING_HOURS,
     })
     .returning({ id: schema.venues.id });
@@ -93,6 +96,10 @@ async function confirmedEventAtNewVenue() {
       purpose: "Re-plan",
       proposedDates: [{ start: `${DATE}T10:00`, end: `${DATE}T12:00` }],
       expectedAttendance: 40,
+      description: "Re-planned community event",
+      venueRequirements: "Projector, PA system",
+      roomLayoutPreference: "Theatre",
+      accessibilityRequirements: "Step-free access",
       eventType: "Conference",
     })
     .returning({ id: schema.eventRequests.id });

@@ -23,6 +23,7 @@ import {
   handleListUnassignedEventRequests,
   handleDeleteEventRequestDraft,
   handleGetEventRequestDraft,
+  handleReuseEventRequest,
   handleSaveEventRequestDraft,
   handleSubmitEventRequest,
 } from "#/features/event-requests/drafts.server";
@@ -37,6 +38,7 @@ import {
   END_BEFORE_START_MESSAGE,
   EQUIPMENT_QUANTITY_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
+  EVENT_REQUEST_REUSE_REFUSAL,
   REGISTRATION_CAPACITY_MESSAGE,
   REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
   REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
@@ -498,7 +500,15 @@ describe("Event request drafts", () => {
     await expect(
       handleSubmitEventRequest({ id: draft.id }, organiser, database as never)
     ).rejects.toThrow(
-      missingFieldsMessage(["Purpose", "Proposed dates and times", "Expected attendance"])
+      missingFieldsMessage([
+        "Purpose",
+        "Proposed dates and times",
+        "Expected attendance",
+        "Description",
+        "Venue requirements",
+        "Room-layout preference",
+        "Accessibility requirements",
+      ])
     );
 
     expect(await findById(draft.id)).toMatchObject({
@@ -818,7 +828,8 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     const deleted = await handleDeleteEventRequestDraft(
       { id: draft.id },
       organiser,
-      database as never
+      database as never,
+      null
     );
     expect(deleted.id).toBe(draft.id);
 
@@ -842,7 +853,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     );
 
     await expect(
-      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never, null)
     ).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
@@ -858,7 +869,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     );
 
     await expect(
-      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never)
+      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never, null)
     ).rejects.toMatchObject({
       name: "AuthorizationError",
       status: 403,
@@ -2386,5 +2397,178 @@ describe("Status set and decision attribution (PTR-21)", () => {
         await handleLiftVenueBlock({ id: blockId }, seedVenueStaff, database as never);
       }
     }
+  });
+});
+
+describe("Starting a new draft from a past request (PTR-154)", () => {
+  let pool: Pool;
+  let database: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(() => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+  });
+
+  afterAll(async () => {
+    if (pool) await pool.end();
+  });
+
+  beforeEach(async () => {
+    await database
+      .delete(schema.eventRequests)
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
+  });
+
+  async function findById(id: number) {
+    const rows = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, id));
+    return rows.at(0) ?? null;
+  }
+
+  const pastRequest: EventRequestDraftValues = {
+    ...fullRequest,
+    proposedDates: [{ start: "2020-03-10T09:00", end: "2020-03-10T12:30" }],
+  };
+  const futureRequest: EventRequestDraftValues = {
+    ...fullRequest,
+    proposedDates: [{ start: "2100-03-10T09:00", end: "2100-03-10T12:30" }],
+  };
+
+  async function submittedPastRequest() {
+    const saved = await handleSaveEventRequestDraft(pastRequest, organiser, database as never);
+    return handleSubmitEventRequest({ id: saved.id }, organiser, database as never);
+  }
+
+  /** Move a submitted row to completed with the audit fields its CHECK requires. */
+  async function completeRequest(id: number) {
+    const [row] = await database
+      .update(schema.eventRequests)
+      .set({
+        status: "completed",
+        decidedByCoordinatorId: "seed-coordinator-1",
+        decidedByCoordinatorName: "Seeded Event Coordinator",
+        decidedAt: new Date(),
+        completedById: "seed-coordinator-1",
+        completedByName: "Seeded Event Coordinator",
+        completedAt: new Date(),
+      })
+      .where(eq(schema.eventRequests.id, id))
+      .returning();
+    return row;
+  }
+
+  it("copies the repeatable details of a completed request and resets the rest (AC1, AC2)", async () => {
+    const submitted = await handleSaveEventRequestDraft(
+      {
+        ...pastRequest,
+        registrationEnabled: true,
+        registrationCapacity: 25,
+        registrationOpensAt: "2020-02-01T09:00",
+        registrationClosesAt: "2020-02-20T17:00",
+      },
+      organiser,
+      database as never
+    ).then(draft => handleSubmitEventRequest({ id: draft.id }, organiser, database as never));
+    const source = await completeRequest(submitted.id);
+
+    const reused = await handleReuseEventRequest({ id: source.id }, organiser, database as never);
+
+    expect(reused.id).not.toBe(source.id);
+    expect(reused).toMatchObject({
+      organiserId: organiser.id,
+      status: "draft",
+      submittedAt: null,
+      assignedCoordinatorId: null,
+      assignedAt: null,
+      decidedByCoordinatorId: null,
+      decidedByCoordinatorName: null,
+      decidedAt: null,
+      completedById: null,
+      completedAt: null,
+      eventName: source.eventName,
+      purpose: source.purpose,
+      proposedDates: [],
+      expectedAttendance: source.expectedAttendance,
+      description: source.description,
+      eventType: "",
+      venueRequirements: source.venueRequirements,
+      roomLayoutPreference: source.roomLayoutPreference,
+      accessibilityRequirements: source.accessibilityRequirements,
+      equipmentRequirements: source.equipmentRequirements,
+      specialArrangements: "",
+      registrationEnabled: false,
+      registrationCapacity: null,
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+    });
+  });
+
+  it("reuses a past-dated request that is not completed (AC1)", async () => {
+    const source = await submittedPastRequest();
+
+    const reused = await handleReuseEventRequest({ id: source.id }, organiser, database as never);
+
+    expect(reused).toMatchObject({
+      id: expect.any(Number),
+      status: "draft",
+    });
+    expect(reused.id).not.toBe(source.id);
+  });
+
+  it("refuses a draft and a live request with 409 (AC1)", async () => {
+    const draft = await handleSaveEventRequestDraft(futureRequest, organiser, database as never);
+    await expect(
+      handleReuseEventRequest({ id: draft.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: EVENT_REQUEST_REUSE_REFUSAL,
+    });
+
+    const saved = await handleSaveEventRequestDraft(futureRequest, organiser, database as never);
+    const live = await handleSubmitEventRequest({ id: saved.id }, organiser, database as never);
+    await expect(
+      handleReuseEventRequest({ id: live.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: EVENT_REQUEST_REUSE_REFUSAL,
+    });
+
+    expect(await ownedRequestCount(database)).toBe(2);
+  });
+
+  it("refuses another organiser's request and a missing id with 403 (AC3)", async () => {
+    const source = await completeRequest((await submittedPastRequest()).id);
+
+    await expect(
+      handleReuseEventRequest({ id: source.id }, otherOrganiser, database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
+    await expect(
+      handleReuseEventRequest({ id: 987654 }, organiser, database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
+
+    expect(await ownedRequestCount(database)).toBe(1);
+  });
+
+  it("leaves the source unchanged when the draft is reused and saved (AC4)", async () => {
+    const source = await completeRequest((await submittedPastRequest()).id);
+    const before = await findById(source.id);
+
+    const reused = await handleReuseEventRequest({ id: source.id }, organiser, database as never);
+    expect(await findById(source.id)).toEqual(before);
+
+    await handleSaveEventRequestDraft(
+      { id: reused.id, eventName: "Edited copy" },
+      organiser,
+      database as never
+    );
+    expect(await findById(source.id)).toEqual(before);
+    expect(await findById(reused.id)).toMatchObject({
+      eventName: "Edited copy",
+      status: "draft",
+    });
   });
 });

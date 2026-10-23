@@ -15,6 +15,12 @@ export const env = createEnv({
     EMAIL_FROM: z.email().optional(),
     SMTP_URL: z.string().optional(),
     REDIS_URL: z.string().optional(),
+    /** Optional Cloudflare R2 bucket for draft supporting documents. Unset means attaching is unavailable. */
+    STORAGE_BUCKET: z.string().min(1).optional(),
+    STORAGE_ENDPOINT: z.url().optional(),
+    STORAGE_REGION: z.string().min(1).optional(),
+    STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+    STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   },
   clientPrefix: "VITE_",
   client: {
@@ -36,6 +42,11 @@ export const env = createEnv({
     EMAIL_FROM: process.env.EMAIL_FROM,
     SMTP_URL: process.env.SMTP_URL,
     REDIS_URL: process.env.REDIS_URL,
+    STORAGE_BUCKET: process.env.STORAGE_BUCKET,
+    STORAGE_ENDPOINT: process.env.STORAGE_ENDPOINT,
+    STORAGE_REGION: process.env.STORAGE_REGION,
+    STORAGE_ACCESS_KEY_ID: process.env.STORAGE_ACCESS_KEY_ID,
+    STORAGE_SECRET_ACCESS_KEY: process.env.STORAGE_SECRET_ACCESS_KEY,
     // Vite provides `import.meta.env`. In Node.js tools, such as drizzle-kit and
     // instrument.server.mjs, use `process.env` instead.
     VITE_APP_TITLE: process.env.VITE_APP_TITLE ?? import.meta.env?.VITE_APP_TITLE,

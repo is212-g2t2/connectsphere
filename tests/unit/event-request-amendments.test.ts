@@ -11,11 +11,11 @@ const row = {
   purpose: "Agree the plan",
   proposedDates: [{ start: "2031-03-10T09:00", end: "2031-03-10T17:00" }],
   expectedAttendance: 80,
-  description: "",
+  description: "Annual planning forum",
   eventType: "",
-  venueRequirements: "",
-  roomLayoutPreference: "",
-  accessibilityRequirements: "",
+  venueRequirements: "A projector wall",
+  roomLayoutPreference: "Theatre",
+  accessibilityRequirements: "Step-free access",
   equipmentRequirements: [{ type: "Projector", quantity: 1 }],
   specialArrangements: "",
   registrationEnabled: false,
@@ -56,6 +56,31 @@ describe("event request amendments", () => {
     expect(error).toMatchObject({
       status: 409,
       message: "This request is missing: Expected attendance",
+    });
+  });
+
+  it("does not block a reply on a row created before the listed-detail rule", () => {
+    const legacy = {
+      ...row,
+      description: "",
+      venueRequirements: "",
+      roomLayoutPreference: "",
+      accessibilityRequirements: "",
+    };
+
+    expect(() => amendedValues(legacy, { expectedAttendance: 90 })).not.toThrow();
+  });
+
+  it("refuses a reply that clears a permitted listed detail", () => {
+    let error: unknown;
+    try {
+      amendedValues(row, { description: "" });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({
+      status: 409,
+      message: "This request is missing: Description",
     });
   });
 });

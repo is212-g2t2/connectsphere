@@ -2,6 +2,7 @@ import type { eventRequests } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import {
   clarificationAmendmentKeys,
+  LISTED_DETAIL_FIELDS,
   missingFieldsMessage,
   missingRequiredFields,
   parseDraftInput,
@@ -148,6 +149,11 @@ export function amendedValues(
     registrationClosesAt: merged.registrationClosesAt ?? undefined,
   });
   const missing = missingRequiredFields(values);
+  // PTR-155 applies to submission, not to a reply or an update. Check a listed detail only when
+  // this amendment clears it, so a row created before the rule can still be completed.
+  for (const [key, label] of LISTED_DETAIL_FIELDS) {
+    if (key in amendments && values[key].trim() === "") missing.push(label);
+  }
   // A status-carrying refusal, so `withSession` answers 409 instead of a 500.
   if (missing.length > 0) throw new ConflictError(missingFieldsMessage(missing));
   return values;

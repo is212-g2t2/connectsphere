@@ -61,6 +61,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 - [ADR-5: Overlap-free approved bookings, enforced by a PostgreSQL exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md) (superseded by ADR-7)
 - [ADR-6: Notification emails from a transactional queue drained by a scheduled worker](./adrs/ADR-6-notification-delivery.md)
 - [ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint](./adrs/ADR-7-venue-occupancy-ledger.md)
+- [ADR-8: Draft supporting documents in a private S3 bucket behind one adapter](./adrs/ADR-8-draft-attachments-storage.md)
 
 ## Directory Structure
 

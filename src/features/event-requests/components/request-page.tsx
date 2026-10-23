@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Card, CardContent } from "#/components/ui/card";
+import { DraftAttachments } from "#/features/event-requests/components/draft-attachments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
 import { saveEventRequestDraft, submitEventRequest } from "#/features/event-requests/server-fns";
@@ -57,6 +58,8 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
   }
 
   const submitted = submission.status === "success";
+  // Attachments need a saved row. A reopened draft has its id; a new draft gains one on save.
+  const attachmentDraftId = draft.data?.id ?? existingDraft?.id;
 
   return (
     <Page width="page">
@@ -104,6 +107,10 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
               onSubmitRequest={handleSubmitRequest}
             />
           </div>
+
+          {attachmentDraftId !== undefined && (
+            <DraftAttachments key={attachmentDraftId} draftId={attachmentDraftId} />
+          )}
         </>
       )}
     </Page>

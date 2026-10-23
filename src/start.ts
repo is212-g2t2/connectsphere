@@ -3,7 +3,18 @@ import {
   sentryGlobalRequestMiddleware,
 } from "@sentry/tanstackstart-react";
 import { createMiddleware, createStart } from "@tanstack/react-start";
+import { exceedsRequestBodyLimit } from "#/features/event-requests/attachments";
 import { logger } from "#/lib/logger";
+
+/** Refuse an oversized body before TanStack parses the multipart form. */
+const requestBodyLimitMiddleware = createMiddleware({ type: "request" }).server(
+  async ({ request, next }) => {
+    if (exceedsRequestBodyLimit(request.headers.get("content-length"), request.body !== null)) {
+      return new Response("Payload too large", { status: 413 });
+    }
+    return next();
+  }
+);
 
 const loggerMiddleware = createMiddleware({ type: "request" }).server(async ({ request, next }) => {
   logger.info("Incoming request", {
@@ -25,7 +36,11 @@ const loggerMiddleware = createMiddleware({ type: "request" }).server(async ({ r
  */
 export const startInstance = createStart(() => {
   return {
-    requestMiddleware: [sentryGlobalRequestMiddleware, loggerMiddleware],
+    requestMiddleware: [
+      sentryGlobalRequestMiddleware,
+      loggerMiddleware,
+      requestBodyLimitMiddleware,
+    ],
     functionMiddleware: [sentryGlobalFunctionMiddleware],
   };
 });
