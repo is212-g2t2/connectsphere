@@ -10,10 +10,13 @@ const {
   listEventRequestAttachments,
   uploadEventRequestAttachment,
   downloadEventRequestAttachment,
+  removeEventRequestAttachment,
 } = vi.hoisted(() => ({
   listEventRequestAttachments: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
   uploadEventRequestAttachment: vi.fn<(options: { data: FormData }) => Promise<unknown>>(),
   downloadEventRequestAttachment:
+    vi.fn<(options: { data: { id: number; attachmentId: number } }) => Promise<unknown>>(),
+  removeEventRequestAttachment:
     vi.fn<(options: { data: { id: number; attachmentId: number } }) => Promise<unknown>>(),
 }));
 
@@ -21,6 +24,7 @@ vi.mock("#/features/event-requests/server-fns", () => ({
   listEventRequestAttachments,
   uploadEventRequestAttachment,
   downloadEventRequestAttachment,
+  removeEventRequestAttachment,
 }));
 
 const listed = {
@@ -59,7 +63,7 @@ describe("DraftAttachments", () => {
     expect(await screen.findByText("plan.pdf")).toBeTruthy();
     expect(screen.getByText("2.0 KB")).toBeTruthy();
     expect(screen.getByText("1 of 10 attachments used.")).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Download" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Download plan.pdf" })).toBeTruthy();
     expect(listEventRequestAttachments).toHaveBeenCalledExactlyOnceWith({ data: { id: 41 } });
   });
 
@@ -162,7 +166,7 @@ describe("DraftAttachments", () => {
     });
     render(<DraftAttachments draftId={41} />);
 
-    await user.click(await screen.findByRole("button", { name: "Download" }));
+    await user.click(await screen.findByRole("button", { name: "Download plan.pdf" }));
 
     await waitFor(() => expect(downloadEventRequestAttachment).toHaveBeenCalledOnce());
     expect(downloadEventRequestAttachment).toHaveBeenCalledWith({
@@ -173,5 +177,33 @@ describe("DraftAttachments", () => {
     expect(click).toHaveBeenCalledOnce();
     expect(downloadName).toBe("plan.pdf");
     click.mockRestore();
+  });
+
+  it("removes the attachment and refreshes the list", async () => {
+    const user = userEvent.setup();
+    removeEventRequestAttachment.mockResolvedValue({ id: 7 });
+    render(<DraftAttachments draftId={41} />);
+
+    await user.click(await screen.findByRole("button", { name: "Remove plan.pdf" }));
+
+    await waitFor(() => expect(removeEventRequestAttachment).toHaveBeenCalledOnce());
+    expect(removeEventRequestAttachment).toHaveBeenCalledWith({
+      data: { id: 41, attachmentId: 7 },
+    });
+    await waitFor(() => expect(listEventRequestAttachments).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows the server's reason when the removal is refused", async () => {
+    const user = userEvent.setup();
+    removeEventRequestAttachment.mockRejectedValue(
+      new Error("This attachment is no longer available.")
+    );
+    render(<DraftAttachments draftId={41} />);
+
+    await user.click(await screen.findByRole("button", { name: "Remove plan.pdf" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This attachment is no longer available."
+    );
   });
 });

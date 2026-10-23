@@ -10,6 +10,7 @@ import {
   getAttachmentStorage,
   handleDownloadEventRequestAttachment,
   handleListEventRequestAttachments,
+  handleRemoveEventRequestAttachment,
   handleUploadEventRequestAttachment,
   isAttachmentStorageConfigured,
   runAttachmentSmokeCheck,
@@ -23,6 +24,7 @@ import {
   ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE,
 } from "#/features/event-requests/attachments";
 import {
+  handleDeleteEventRequestDraft,
   handleSaveEventRequestDraft,
   handleSubmitEventRequest,
 } from "#/features/event-requests/drafts.server";
@@ -59,6 +61,17 @@ const organiserIds = organiserFixtures.map(user => user.id);
 
 function pdfBytes(extra = ""): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.4 attachment${extra}`);
+}
+
+/** A store whose object delete fails, to prove the row action still succeeds. */
+function failingStorage() {
+  return {
+    put: async () => {},
+    get: async () => null,
+    remove: async () => {
+      throw new Error("bucket down");
+    },
+  };
 }
 
 const completeDraft = {
@@ -356,6 +369,162 @@ describe("Draft attachment storage", { timeout: 15_000 }, () => {
         storage
       )
     ).rejects.toMatchObject({ name: "NotFoundError" });
+  });
+
+  it("removes an owned attachment's row and object, then reads it as gone", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const { storage, liveKeys } = testStorage();
+    const row = await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "old.pdf", bytes: pdfBytes() },
+      organiser,
+      database as never,
+      storage
+    );
+
+    await expect(
+      handleRemoveEventRequestAttachment(
+        { id: draft.id, attachmentId: row.id },
+        organiser,
+        database as never,
+        storage
+      )
+    ).resolves.toBeUndefined();
+
+    expect(await attachmentRows(draft.id)).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
+
+    await expect(
+      handleRemoveEventRequestAttachment(
+        { id: draft.id, attachmentId: row.id },
+        organiser,
+        database as never,
+        storage
+      )
+    ).rejects.toMatchObject({ name: "NotFoundError" });
+  });
+
+  it("reads another organiser's attachment as gone and keeps the row and object", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const { storage, liveKeys } = testStorage();
+    const row = await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "mine.pdf", bytes: pdfBytes() },
+      organiser,
+      database as never,
+      storage
+    );
+
+    await expect(
+      handleRemoveEventRequestAttachment(
+        { id: draft.id, attachmentId: row.id },
+        otherOrganiser,
+        database as never,
+        storage
+      )
+    ).rejects.toMatchObject({ name: "NotFoundError" });
+
+    expect(await attachmentRows(draft.id)).toHaveLength(1);
+    expect(await liveKeys()).toEqual(
+      (await attachmentRows(draft.id)).map(stored => stored.objectKey)
+    );
+  });
+
+  it("refuses a submitted request's attachment and keeps the row and object", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const { storage, liveKeys } = testStorage();
+    const row = await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "plan.pdf", bytes: pdfBytes() },
+      organiser,
+      database as never,
+      storage
+    );
+    await handleSubmitEventRequest({ id: draft.id }, organiser, database as never);
+
+    await expect(
+      handleRemoveEventRequestAttachment(
+        { id: draft.id, attachmentId: row.id },
+        organiser,
+        database as never,
+        storage
+      )
+    ).rejects.toMatchObject({ name: "ConflictError", message: ATTACHMENT_NOT_DRAFT_MESSAGE });
+
+    expect(await attachmentRows(draft.id)).toHaveLength(1);
+    expect(await liveKeys()).toEqual(
+      (await attachmentRows(draft.id)).map(stored => stored.objectKey)
+    );
+  });
+
+  it("deletes the row when the object delete fails", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const { storage } = testStorage();
+    const row = await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "plan.pdf", bytes: pdfBytes() },
+      organiser,
+      database as never,
+      storage
+    );
+    const failing = failingStorage();
+
+    await expect(
+      handleRemoveEventRequestAttachment(
+        { id: draft.id, attachmentId: row.id },
+        organiser,
+        database as never,
+        failing
+      )
+    ).resolves.toBeUndefined();
+
+    expect(await attachmentRows(draft.id)).toEqual([]);
+  });
+
+  it("deletes the draft's objects with the draft", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const { storage, liveKeys } = testStorage();
+    await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "a.pdf", bytes: pdfBytes("a") },
+      organiser,
+      database as never,
+      storage
+    );
+    await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "b.pdf", bytes: pdfBytes("b") },
+      organiser,
+      database as never,
+      storage
+    );
+
+    const deleted = await handleDeleteEventRequestDraft(
+      { id: draft.id },
+      organiser,
+      database as never,
+      storage
+    );
+
+    expect(deleted.id).toBe(draft.id);
+    expect(await attachmentRows(draft.id)).toEqual([]);
+    expect(await liveKeys()).toEqual([]);
+  });
+
+  it("still deletes the draft when an object delete fails", async () => {
+    const draft = await draftOwnedBy(organiser, database);
+    const { storage } = testStorage();
+    await handleUploadEventRequestAttachment(
+      { eventRequestId: draft.id, filename: "plan.pdf", bytes: pdfBytes() },
+      organiser,
+      database as never,
+      storage
+    );
+    const failing = failingStorage();
+
+    const deleted = await handleDeleteEventRequestDraft(
+      { id: draft.id },
+      organiser,
+      database as never,
+      failing
+    );
+
+    expect(deleted.id).toBe(draft.id);
+    expect(await attachmentRows(draft.id)).toEqual([]);
   });
 
   it("answers that storage is unavailable when no store is configured", async () => {

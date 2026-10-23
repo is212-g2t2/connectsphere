@@ -125,6 +125,31 @@ export async function runAttachmentSmokeCheck(storage: AttachmentStorage): Promi
 }
 
 /**
+ * Delete stored objects after their rows commit. A failed object delete is logged and never
+ * fails the user action. Objects left behind by a failed delete stay in the bucket; no sweep
+ * removes them.
+ */
+export async function removeAttachmentObjects(
+  storage: AttachmentStorage | null,
+  keys: string[]
+): Promise<void> {
+  if (keys.length === 0) return;
+  if (!storage) {
+    log.warn("Attachment object cleanup skipped: storage is not configured", {
+      count: keys.length,
+    });
+    return;
+  }
+  await Promise.all(
+    keys.map(key =>
+      storage
+        .remove(key)
+        .catch(removeError => log.warn("Attachment object cleanup failed", { key, removeError }))
+    )
+  );
+}
+
+/**
  * AC1: store the file under a server-generated key, then in one short transaction lock the
  * event row, check the request is still this organiser's draft with fewer than
  * `ATTACHMENT_MAX_COUNT` attachments, and insert the row. Any failed check deletes the object
@@ -193,11 +218,61 @@ export async function handleUploadEventRequestAttachment(
       return row;
     });
   } catch (error) {
-    await storage
-      .remove(key)
-      .catch(removeError => log.warn("Attachment object cleanup failed", { key, removeError }));
+    await removeAttachmentObjects(storage, [key]);
     throw error;
   }
+}
+
+/**
+ * PTR-159: remove one of the organiser's attachments from a draft. Lock the event row first,
+ * in the same order as upload, submit, and draft delete, so those paths serialise. The row delete
+ * commits before the object delete, which is best effort and logged. Another organiser's
+ * attachment reads as gone, and a submitted request's attachment is refused, so the review flow
+ * keeps what it received.
+ */
+export async function handleRemoveEventRequestAttachment(
+  data: unknown,
+  user: SessionUser,
+  database: Database,
+  storage: AttachmentStorage | null
+): Promise<void> {
+  const { id, attachmentId } = parseAttachmentDownload(data);
+
+  const row = await database.transaction(async tx => {
+    const ownRows = await tx
+      .select({ status: eventRequests.status })
+      .from(eventRequests)
+      .where(and(eq(eventRequests.id, id), eq(eventRequests.organiserId, user.id)))
+      .for("update");
+    const own = ownRows.at(0);
+    if (!own) throw new NotFoundError("This attachment is no longer available.");
+    if (own.status !== "draft") throw new ConflictError(ATTACHMENT_NOT_DRAFT_MESSAGE);
+
+    const rows = await tx
+      .select({ objectKey: eventRequestAttachments.objectKey })
+      .from(eventRequestAttachments)
+      .where(
+        and(
+          eq(eventRequestAttachments.id, attachmentId),
+          eq(eventRequestAttachments.eventRequestId, id)
+        )
+      );
+    const found = rows.at(0);
+    if (!found) throw new NotFoundError("This attachment is no longer available.");
+
+    await tx
+      .delete(eventRequestAttachments)
+      .where(
+        and(
+          eq(eventRequestAttachments.id, attachmentId),
+          eq(eventRequestAttachments.eventRequestId, id)
+        )
+      );
+
+    return found;
+  });
+
+  await removeAttachmentObjects(storage, [row.objectKey]);
 }
 
 /**
