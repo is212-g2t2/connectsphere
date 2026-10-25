@@ -639,7 +639,10 @@ function ChangesBody({ data }: { data: EventPageData }) {
     <div className="space-y-8">
       {processing && <ChangeRequestDecisions request={request} />}
       {processing && !canUpdateEventInformation(request.status) && (
-        <CoordinatorInformationForm request={request} />
+        <CoordinatorInformationForm
+          request={request}
+          layouts={"layouts" in data ? data.layouts : undefined}
+        />
       )}
       {history.changeRequests.length > 0 && (
         <ChangeRequestHistory

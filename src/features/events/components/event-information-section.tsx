@@ -233,7 +233,9 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
         if (body.event.access === "coordinator") {
           const request = body.coordination?.request;
           // The form owns its own disclosure and heading; do not nest a second one.
-          return request ? <CoordinatorInformationForm request={request} /> : null;
+          return request ? (
+            <CoordinatorInformationForm request={request} layouts={body.layouts} />
+          ) : null;
         }
         const request = body.organiserRequest;
         return request ? <OrganiserInformation request={request} /> : null;

@@ -3,7 +3,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { EventRequestForm } from "#/features/event-requests/components/request-form";
+import {
+  EventRequestForm,
+  layoutOptionForPreference,
+  otherLabelForOptions,
+} from "#/features/event-requests/components/request-form";
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import {
   REGISTRATION_CAPACITY_MESSAGE,
@@ -13,6 +17,8 @@ import {
   REGISTRATION_OPENS_REQUIRED_MESSAGE,
 } from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import { INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 
 const BLANK_DRAFT = {
   eventName: "",
@@ -807,5 +813,117 @@ describe("EventRequestForm", () => {
     expect(summary?.querySelector("a")?.getAttribute("href")).toBe("#eventName");
     expect(document.activeElement).toBe(screen.getByLabelText("Event name", { exact: true }));
     expect(screen.getByRole("button", { name: "Submit request" })).toBeTruthy();
+  });
+});
+
+describe("EventRequestForm room-layout preference (PTR-161 AC1, AC6)", () => {
+  const layouts: readonly RoomLayout[] = [
+    ...INITIAL_ROOM_LAYOUTS,
+    { key: "cabaret", label: "Cabaret" },
+  ];
+
+  it("maps a stored value to its maintained label, case-insensitively", () => {
+    expect(layoutOptionForPreference("cabaret", layouts)).toBe("Cabaret");
+    expect(layoutOptionForPreference("  Cabaret  ", layouts)).toBe("Cabaret");
+    expect(layoutOptionForPreference("THEATRE", INITIAL_ROOM_LAYOUTS)).toBe("Theatre");
+    expect(layoutOptionForPreference("Theatre seating", layouts)).toBeNull();
+    expect(layoutOptionForPreference("Stadium", layouts)).toBeNull();
+    expect(layoutOptionForPreference("", layouts)).toBeNull();
+  });
+
+  it("offers the maintained list as the room-layout options", async () => {
+    const user = userEvent.setup();
+    render(<EventRequestForm layouts={layouts} onSave={makeOnSave()} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    expect(await screen.findByRole("option", { name: "Cabaret" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "U-shape" })).toBeNull();
+  });
+
+  it("keeps a stored value outside the production list as free text", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(
+      <EventRequestForm
+        layouts={INITIAL_ROOM_LAYOUTS}
+        initialValues={{ ...initialValues, roomLayoutPreference: "Cabaret" }}
+        onSave={onSave}
+      />
+    );
+
+    // "Cabaret" names no production layout, so the form keeps it as written (AC2).
+    expect(inputValue("Room-layout preference: other")).toBe("Cabaret");
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].roomLayoutPreference).toBe("Cabaret");
+  });
+
+  it("keeps a stored value that names no layout as Other text", () => {
+    render(
+      <EventRequestForm
+        layouts={layouts}
+        initialValues={{ ...initialValues, roomLayoutPreference: "Tables of 6" }}
+        onSave={makeOnSave()}
+      />
+    );
+
+    expect(inputValue("Room-layout preference: other")).toBe("Tables of 6");
+  });
+
+  it("names the free-text item distinctly when the maintained list already offers Other", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm layouts={INITIAL_ROOM_LAYOUTS} onSave={onSave} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    expect(await screen.findByRole("option", { name: "Other" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Other (describe)" })).toBeTruthy();
+
+    await user.click(screen.getByRole("option", { name: "Other (describe)" }));
+    const other = screen.getByLabelText("Room-layout preference: other");
+    expect(other).toBeTruthy();
+    await user.type(other, "Pond");
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].roomLayoutPreference).toBe("Pond");
+  });
+
+  it("stores the listed Other with no description", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm layouts={INITIAL_ROOM_LAYOUTS} onSave={onSave} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    await user.click(await screen.findByRole("option", { name: "Other" }));
+    expect(screen.queryByLabelText("Room-layout preference: other")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].roomLayoutPreference).toBe("Other");
+  });
+
+  it("takes the first free label when Other (describe) is also taken", () => {
+    expect(otherLabelForOptions(["Theatre"])).toBe("Other");
+    expect(otherLabelForOptions(["Theatre", "Other"])).toBe("Other (describe)");
+    expect(otherLabelForOptions(["Other", "Other (describe)"])).toBe("Other (describe) 2");
+    expect(otherLabelForOptions(["Other", "Other (describe)", "Other (describe) 2"])).toBe(
+      "Other (describe) 3"
+    );
+  });
+
+  it("shows no duplicate label when the maintained list already offers Other (describe)", async () => {
+    const user = userEvent.setup();
+    const collidingLayouts: readonly RoomLayout[] = [
+      ...INITIAL_ROOM_LAYOUTS,
+      { key: "other-describe", label: "Other (describe)" },
+    ];
+    render(<EventRequestForm layouts={collidingLayouts} onSave={makeOnSave()} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    expect(await screen.findByRole("option", { name: "Other (describe) 2" })).toBeTruthy();
+    expect(screen.getAllByRole("option", { name: "Other (describe)" })).toHaveLength(1);
   });
 });

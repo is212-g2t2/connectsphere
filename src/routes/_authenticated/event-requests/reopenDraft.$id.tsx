@@ -6,6 +6,8 @@ import { EventRequestsPageSkeleton } from "#/features/event-requests/components/
 import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { getEventRequestDraft } from "#/features/event-requests/server-fns";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
+import { listRoomLayouts } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft/$id")({
@@ -19,7 +21,9 @@ export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft
       throw redirect({ to: "/dashboard" });
     }
   },
-  loader: async ({ params }): Promise<EventRequestDraft> => {
+  loader: async ({
+    params,
+  }): Promise<{ draft: EventRequestDraft; layouts: RoomLayout[] | undefined }> => {
     // Apply the server function's rule here. A malformed path segment returns 404 without a server call, as `$requestId.tsx` does.
     const parsed = EventRequestIdInput.safeParse({ id: Number(params.id) });
     if (!parsed.success) {
@@ -31,8 +35,14 @@ export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft
     if (!draft) {
       throw notFound();
     }
-    return draft;
+    // The event form's room-layout preference offers the maintained list (PTR-161 AC1). A
+    // failed read leaves the form on the initials, as `load-page-data.ts` does.
+    const layouts = await listRoomLayouts().catch(() => undefined);
+    return { draft, layouts };
   },
-  component: () => <EventRequestsPage existingDraft={Route.useLoaderData()} />,
+  component: () => {
+    const { draft, layouts } = Route.useLoaderData();
+    return <EventRequestsPage existingDraft={draft} layouts={layouts} />;
+  },
   pendingComponent: EventRequestsPageSkeleton,
 });

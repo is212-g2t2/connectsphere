@@ -51,26 +51,32 @@ export async function loadEventPageData(
     case "organiser": {
       // Degrade each extra to `null` on failure. A failed read then leaves the page rendering
       // from the projection. The venue and tech branches do the same.
-      const [organiserRequest, attendees] = await Promise.all([
+      const [organiserRequest, attendees, layouts] = await Promise.all([
         getEventRequest({ data: { id: eventId } }).then(
           ({ request }) => request,
           () => null
         ),
         loadAttendees(projection, eventId),
+        // The reply form offers the maintained room layout list (PTR-161 AC1). A failed read
+        // leaves the form on the initials, as the venue branch does.
+        listRoomLayouts().catch(() => undefined),
       ]);
-      return { kind: "event", event: projection, organiserRequest, attendees };
+      return { kind: "event", event: projection, organiserRequest, attendees, layouts };
     }
     case "coordinator": {
       // PTR-145: the Coordinator no longer moves an assignment, so their page carries no
       // candidate list.
-      const [coordination, attendees] = await Promise.all([
+      const [coordination, attendees, layouts] = await Promise.all([
         getCoordinationRequest({ data: { id: eventId } }).then(
           request => ({ request }),
           () => null
         ),
         loadAttendees(projection, eventId),
+        // The event-information form offers the maintained room layout list (PTR-161 AC1), as
+        // above.
+        listRoomLayouts().catch(() => undefined),
       ]);
-      return { kind: "event", event: projection, coordination, attendees };
+      return { kind: "event", event: projection, coordination, attendees, layouts };
     }
     case "lead": {
       // PTR-144: a queue row — any unassigned non-draft request — opens the queue detail, which
