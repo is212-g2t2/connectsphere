@@ -17,6 +17,7 @@ import {
   formatProposedWindow,
 } from "#/features/event-requests/format";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 
 /**
  * Shared clarification, change-request, and cancellation history for the Organiser's detail page
@@ -26,10 +27,13 @@ import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 export function ClarificationThread({
   request,
   replyable,
+  layouts,
 }: {
   request: EventRequestDetail;
   /** Whether the reader may answer an open question (the Organiser's own screens only). */
   replyable: boolean;
+  /** The maintained room layout list, from the route loader. The reply form reads it (PTR-161 AC1). */
+  layouts?: readonly RoomLayout[];
 }) {
   const replyValues = toDraftValues(request);
   return (
@@ -95,6 +99,7 @@ export function ClarificationThread({
                           requestId={request.id}
                           clarification={item}
                           initialValues={replyValues}
+                          layouts={layouts}
                         />
                       </div>
                     )

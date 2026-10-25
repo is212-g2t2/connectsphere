@@ -49,9 +49,14 @@ export const requireVenueBlock = requirePermission({ venue: ["update"] });
 
 /**
  * Venue Staff maintain the room layout list with `venue:update`. Coordinators and Technical
- * Support read it through `requireVenueRead` for forms, filters, and suitability.
+ * Support read it through `venue:read` for forms, filters, and suitability. The Organiser reads
+ * it through `event_request:create` for the event form's room-layout preference (PTR-161 AC1).
  */
 export const requireRoomLayoutWrite = requirePermission({ venue: ["update"] });
+export const requireRoomLayoutRead = requirePermission([
+  { venue: ["read"] },
+  { event_request: ["create"] },
+]);
 
 async function loadLayoutServer() {
   return Promise.all([import("#/db"), import("#/features/venues/layouts.server")]);
@@ -174,7 +179,7 @@ export const liftVenueBlock = createServerFn({ method: "POST" })
 
 /** List every room layout type by label. Forms, filters, and suitability read this list. */
 export const listRoomLayouts = createServerFn({ method: "GET" })
-  .middleware([requireVenueRead])
+  .middleware([requireRoomLayoutRead])
   .handler(async () => {
     const [{ db }, { handleListRoomLayouts }] = await loadLayoutServer();
     return handleListRoomLayouts(db);

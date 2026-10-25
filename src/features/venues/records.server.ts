@@ -40,6 +40,7 @@ import {
   normalizeDatabaseTimestamp,
   openingPeriods,
   projectAvailability,
+  timestampDay,
   toLocalMinuteValue,
 } from "#/features/venues/availability";
 import type {
@@ -92,6 +93,13 @@ interface VenueSuitabilityCandidate {
   accessibilityFeatures: readonly string[];
   supportedLayouts: readonly VenueLayout[];
   operatingHours: OperatingHours;
+  /**
+   * Minutes of setup and turnaround around each booking or hold. Search extends the requested
+   * window by these before comparing it with occupied periods (PTR-161 AC8), as approval does
+   * (`checkVenueFree`/`overlapsPeriod`). Absent in older callers, which compare raw windows.
+   */
+  setupMinutes?: number;
+  turnaroundMinutes?: number;
 }
 
 function normalise(value: string) {
@@ -158,17 +166,35 @@ function overlaps(
   return period.visibleStart < end && period.visibleEnd > start;
 }
 
-function clashingFailure(
-  clashes: readonly OccupiedPeriod[],
-  day: string
-): SuitabilityFailure | null {
+/** Pad a date or time part to two digits for the fixed-width floating spelling. */
+function padTwo(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/**
+ * Shift a civil-day `HH:MM` time by minutes, carrying across midnight. The result keeps the
+ * fixed-width floating spelling, so it compares with occupied periods as a string. The shift
+ * applies to the wall-clock reading itself, so no timezone applies.
+ */
+export function shiftedDayTime(day: string, time: string, deltaMinutes: number): string {
+  const instant = Date.parse(`${day}T${time}:00Z`) + deltaMinutes * 60_000;
+  if (!Number.isFinite(instant)) throw new Error("Availability contains an invalid date");
+  const shifted = new Date(instant);
+  return `${shifted.getUTCFullYear()}-${padTwo(shifted.getUTCMonth() + 1)}-${padTwo(shifted.getUTCDate())}T${padTwo(shifted.getUTCHours())}:${padTwo(shifted.getUTCMinutes())}:00`;
+}
+
+function clashingFailure(clashes: readonly OccupiedPeriod[]): SuitabilityFailure | null {
   const booked = clashes.find(period => period.state === "confirmed");
   if (booked) {
-    return { criterion: "booking", message: `Booked for ${booked.label} on ${day}` };
+    // Name the clash's own day. A buffer can pull in a booking from the next or previous day.
+    return {
+      criterion: "booking",
+      message: `Booked for ${booked.label} on ${timestampDay(booked.startsAt)}`,
+    };
   }
   const held = clashes.find(period => period.state === "tentative_hold");
   if (held) {
-    return { criterion: "hold", message: `Tentatively held on ${day}` };
+    return { criterion: "hold", message: `Tentatively held on ${timestampDay(held.startsAt)}` };
   }
   return null;
 }
@@ -179,7 +205,7 @@ function clashingFailure(
  * before a block on the same day because the Coordinator needs that answer first.
  */
 function availabilityFailure(
-  venue: Pick<VenueSuitabilityCandidate, "operatingHours">,
+  venue: Pick<VenueSuitabilityCandidate, "operatingHours" | "setupMinutes" | "turnaroundMinutes">,
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
   bookings: readonly AvailabilityRecord[],
@@ -188,9 +214,12 @@ function availabilityFailure(
   if (!filters.date) return null;
 
   const endDate = filters.endDate ?? filters.date;
+  // Widen the projection past the requested days by the venue's own buffers. A booking or hold
+  // outside the range that reaches the candidate's buffered window still marks the venue
+  // unsuitable, as approval refuses it. Openings stay on the requested days.
   const range = {
-    startsAt: `${filters.date}T00:00:00`,
-    endsAt: `${nextCivilDate(endDate)}T00:00:00`,
+    startsAt: shiftedDayTime(filters.date, "00:00", -(venue.setupMinutes ?? 0)),
+    endsAt: shiftedDayTime(nextCivilDate(endDate), "00:00", venue.turnaroundMinutes ?? 0),
   };
   const projection = projectAvailability(range, {
     bookings,
@@ -215,7 +244,7 @@ function availabilityFailure(
       const openClashes = projection.occupied.filter(period =>
         opening.some(open => overlaps(period, open.startsAt, open.endsAt))
       );
-      const failure = clashingFailure(openClashes, day);
+      const failure = clashingFailure(openClashes);
       if (failure) return failure;
       return { criterion: "availability", message: `Closed or unavailable on ${day}` };
     }
@@ -234,14 +263,21 @@ function availabilityFailure(
     const covered = projection.available.some(
       period => period.startsAt <= requestedStart && period.endsAt >= requestedEnd
     );
-    if (covered) continue;
+    // PTR-161 AC8: approval expands the candidate window by the venue's setup and turnaround
+    // before comparing it with occupied periods (`checkVenueFree`/`overlapsPeriod`, ADR-7).
+    // Extend the requested window the same way, so search reports the venue unsuitable with the
+    // booking, hold, or block reason for a window that approval would refuse solely because of
+    // a buffer. Periods that only touch the buffered window stay free, as `[)` does.
+    const bufferedStart = shiftedDayTime(day, filters.startTime, -(venue.setupMinutes ?? 0));
+    const bufferedEnd = shiftedDayTime(day, filters.endTime, venue.turnaroundMinutes ?? 0);
+    const clashes = projection.occupied.filter(period =>
+      overlaps(period, bufferedStart, bufferedEnd)
+    );
+    if (covered && clashes.length === 0) continue;
 
     // Check bookings first. The periods are sorted by start, but the Coordinator needs a booking
     // result first even when a block starts earlier that day.
-    const clashes = projection.occupied.filter(period =>
-      overlaps(period, requestedStart, requestedEnd)
-    );
-    const failure = clashingFailure(clashes, day);
+    const failure = clashingFailure(clashes);
     if (failure) return failure;
     if (clashes[0]) {
       return { criterion: "availability", message: `Unavailable on ${day}: ${clashes[0].label}` };
@@ -728,6 +764,23 @@ export async function loadAssignedEvent(
 }
 
 /**
+ * PTR-161 AC7: resolve the search's layout filter against the maintained list. An explicitly
+ * supplied layout that names no maintained layout is refused with `LAYOUT_MESSAGE`, so a typo
+ * cannot fail every venue silently. A layout prefilled from the event's stored preference is
+ * ignored instead (`undefined`): it may name a layout that Venue Staff removed, and the search
+ * then runs without a layout filter.
+ */
+export function resolveSearchLayout(
+  layout: string | undefined,
+  explicitlySupplied: boolean,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[]
+): string | undefined {
+  if (layout === undefined || parseLayouts(layout, layouts).length > 0) return layout;
+  if (explicitlySupplied) throw new Error(LAYOUT_MESSAGE);
+  return undefined;
+}
+
+/**
  * Run PTR-29 venue search and PTR-30 suitability checks. Only the assigned Coordinator can supply
  * an event id; refuse other users without revealing whether the event exists. Use the event's
  * first complete proposed window and hard requirements as defaults. Evaluate explicit filters
@@ -776,9 +829,8 @@ export async function handleSearchVenues(
   const { handleListRoomLayouts } = await import("#/features/venues/layouts.server");
   const layouts = await handleListRoomLayouts(database);
   // A typo must not silently match nothing. An empty result reads as "none available".
-  if (filters.layout !== undefined && parseLayouts(filters.layout, layouts).length === 0) {
-    throw new Error(LAYOUT_MESSAGE);
-  }
+  // An event-defaulted layout that names no maintained layout is ignored (AC7 above).
+  filters.layout = resolveSearchLayout(filters.layout, supplied.layout !== undefined, layouts);
   // The suitability verdict stays in JS (`evaluateVenueSuitability` below): a SQL pre-filter
   // would drop the failure reasons the unsuitable list must name.
   const venueRows = await handleListVenues(database);
@@ -787,8 +839,16 @@ export async function handleSearchVenues(
   let holdsByVenue = new Map<number, VenueHold[]>();
 
   if (filters.date && venueRows.length > 0) {
-    const startsAt = `${filters.date} 00:00:00`;
-    const endsAt = `${nextCivilDate(filters.endDate ?? filters.date)} 00:00:00`;
+    // Widen the shared read past the requested days by the largest candidate buffers, so a
+    // buffer-only edge clash is loaded for every venue. Each verdict still uses its own buffers.
+    const maxSetup = Math.max(0, ...venueRows.map(row => row.setupMinutes));
+    const maxTurnaround = Math.max(0, ...venueRows.map(row => row.turnaroundMinutes));
+    const startsAt = shiftedDayTime(filters.date, "00:00", -maxSetup).replace("T", " ");
+    const endsAt = shiftedDayTime(
+      nextCivilDate(filters.endDate ?? filters.date),
+      "00:00",
+      maxTurnaround
+    ).replace("T", " ");
     const venueIds = venueRows.map(venue => venue.id);
     const [blocks, bookings, holds] = await Promise.all([
       loadVenueBlocks(database, venueIds, startsAt, endsAt),

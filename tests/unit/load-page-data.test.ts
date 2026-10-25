@@ -134,9 +134,11 @@ describe("loadEventPageData", () => {
     const event = projection("organiser", { name: "Open Day", status: "approved" });
     const request = { id: 7, eventName: "Open Day" };
     const attendees = [{ attendeeId: "a-1" }];
+    const layouts = [{ key: "theatre", label: "Theatre" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetEventRequest.mockResolvedValue({ request });
     mockListEventRegistrations.mockResolvedValue(attendees);
+    mockListRoomLayouts.mockResolvedValue(layouts);
 
     const data = await loadEventPageData(7, "event_organiser");
 
@@ -145,9 +147,11 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: request,
       attendees,
+      layouts,
     });
     expect(mockGetEventRequest).toHaveBeenCalledWith({ data: { id: 7 } });
     expect(mockListEventRegistrations).toHaveBeenCalledWith({ data: { id: 7 } });
+    expect(mockListRoomLayouts).toHaveBeenCalledOnce();
   });
 
   it("skips the registration fetch for an organiser event with no record", async () => {
@@ -163,6 +167,7 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: request,
       attendees: undefined,
+      layouts: [],
     });
     expect(mockListEventRegistrations).not.toHaveBeenCalled();
   });
@@ -181,6 +186,7 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: null,
       attendees,
+      layouts: [],
     });
   });
 
@@ -198,6 +204,25 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: request,
       attendees: null,
+      layouts: [],
+    });
+  });
+
+  it("leaves layouts unset when the organiser layout read fails", async () => {
+    const event = projection("organiser", { name: "Open Day", status: "approved" });
+    const request = { id: 7, eventName: "Open Day" };
+    mockListEvents.mockResolvedValue([event]);
+    mockGetEventRequest.mockResolvedValue({ request });
+    mockListEventRegistrations.mockResolvedValue([]);
+    mockListRoomLayouts.mockRejectedValue(new Error("layout store down"));
+
+    const data = await loadEventPageData(7, "event_organiser");
+
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      organiserRequest: request,
+      attendees: [],
     });
   });
 
@@ -205,9 +230,11 @@ describe("loadEventPageData", () => {
     const event = projection("coordinator", { name: "Open Day", status: "confirmed" });
     const request = { id: 7, status: "confirmed" };
     const attendees = [{ attendeeId: "a-1" }];
+    const layouts = [{ key: "theatre", label: "Theatre" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetCoordinationRequest.mockResolvedValue(request);
     mockListEventRegistrations.mockResolvedValue(attendees);
+    mockListRoomLayouts.mockResolvedValue(layouts);
 
     const data = await loadEventPageData(7, "event_coordinator");
 
@@ -216,6 +243,7 @@ describe("loadEventPageData", () => {
       event,
       coordination: { request },
       attendees,
+      layouts,
     });
     expect(mockGetCoordinationRequest).toHaveBeenCalledWith({ data: { id: 7 } });
     // PTR-145: the Coordinator no longer moves an assignment, so no candidate list is read.
@@ -235,6 +263,7 @@ describe("loadEventPageData", () => {
       event,
       coordination: { request },
       attendees: undefined,
+      layouts: [],
     });
     expect(mockListEventRegistrations).not.toHaveBeenCalled();
   });
@@ -253,6 +282,7 @@ describe("loadEventPageData", () => {
       event,
       coordination: null,
       attendees,
+      layouts: [],
     });
   });
 

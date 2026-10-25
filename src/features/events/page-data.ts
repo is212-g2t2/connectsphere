@@ -46,7 +46,7 @@ export type EventPageData =
         requests: PendingVenueRequestDetail[];
         venues: VenueOption[];
       };
-      /** The maintained room layout list, for session-requirement labels. Unset when the read failed. */
+      /** The maintained room layout list, for session-requirement labels and the event form's room-layout preference. Unset when the read failed. */
       layouts?: readonly RoomLayout[];
       equipmentTypes?: EquipmentTypeOption[] | null;
       attendees?: RegisteredAttendee[] | null;

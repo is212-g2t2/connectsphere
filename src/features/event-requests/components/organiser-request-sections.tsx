@@ -116,7 +116,7 @@ function RequestsBody({ data }: { data: EventPageData }) {
     <div>
       <h2 className="display-h3">Requests & messages</h2>
       <div className="mt-4 space-y-8">
-        <ClarificationThread request={request} replyable />
+        <ClarificationThread request={request} replyable layouts={data.layouts} />
 
         {request.changeRequests.length > 0 && (
           <ChangeRequestHistory request={request} viewerIsCoordinator={false} />

@@ -59,7 +59,7 @@ test.describe("Event request drafts", () => {
     await page.getByLabel("Description", { exact: true }).fill("Bring your own lunch");
     await chooseSelectValue(page, "Type of event (optional)", "Workshop");
     await chooseGroupValue(page, "Venue requirements", "Ground floor, near MRT");
-    await chooseSelectValue(page, "Room-layout preference", "U-shape");
+    await chooseSelectValue(page, "Room-layout preference", "Theatre");
     await chooseGroupValue(page, "Accessibility requirements", "Step-free access");
     await page
       .getByLabel("Special arrangements (optional)", { exact: true })
@@ -184,7 +184,7 @@ test.describe("Event request submission (PTR-13)", () => {
     await page.getByLabel("Expected attendance", { exact: true }).fill("25");
     await page.getByLabel("Description", { exact: true }).fill("Bring your own lunch");
     await chooseGroupValue(page, "Venue requirements", "Ground floor, near MRT");
-    await chooseSelectValue(page, "Room-layout preference", "U-shape");
+    await chooseSelectValue(page, "Room-layout preference", "Theatre");
     await chooseGroupValue(page, "Accessibility requirements", "Step-free access");
     await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-11-18T09:30");
     await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-11-18T12:45");

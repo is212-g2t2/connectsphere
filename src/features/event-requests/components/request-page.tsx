@@ -10,6 +10,7 @@ import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
 import { saveEventRequestDraft, submitEventRequest } from "#/features/event-requests/server-fns";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -33,7 +34,14 @@ export function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
     registrationClosesAt: row.registrationClosesAt ?? undefined,
   };
 }
-export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequestDraft } = {}) {
+export function EventRequestsPage({
+  existingDraft,
+  layouts,
+}: {
+  existingDraft?: EventRequestDraft;
+  /** The maintained room layout list, from the route loader. The form reads it (PTR-161 AC1). */
+  layouts?: readonly RoomLayout[];
+} = {}) {
   const [dirty, setDirty] = useState(false);
   // Guard a reload or tab close while edits are unsaved. In-app navigation stays unblocked:
   // the form also serves the Coordinator's inline edit, where a router blocker would misfire.
@@ -120,6 +128,7 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
             <EventRequestForm
               key={existingDraft?.id ?? "new"}
               initialValues={existingDraft ? toDraftValues(existingDraft) : undefined}
+              layouts={layouts}
               onSave={async values => {
                 const { error } = await saveDraft(values);
                 if (error) {

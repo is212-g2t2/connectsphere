@@ -458,8 +458,19 @@ describe("server-function authorization (PTR-69)", () => {
         });
       });
 
-      it("refuses an external role the layout list", async () => {
+      it("lets the Organiser read the layout list for the event form, but refuses writes", async () => {
         signIn("event_organiser");
+
+        // PTR-161 AC1: the event form's room-layout preference offers the maintained list.
+        expect((await call(listRoomLayouts, undefined, "GET")).error).toBeUndefined();
+        expect(await refusalFrom(saveRoomLayout, layoutRecord)).toMatchObject({ status: 403 });
+        expect(await refusalFrom(deleteRoomLayout, { key: "theatre" })).toMatchObject({
+          status: 403,
+        });
+      });
+
+      it("refuses an attendee the layout list", async () => {
+        signIn("attendee");
 
         expect(await refusalFrom(listRoomLayouts, undefined, "GET")).toEqual({
           status: 403,

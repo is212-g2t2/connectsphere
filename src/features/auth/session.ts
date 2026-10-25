@@ -89,15 +89,25 @@ export const requireSession = createMiddleware({ type: "function" })
  * raw here (the server function's own `.validator()` runs after the middleware pipeline), so an
  * accessor may only pick between permissions the caller would need for the operation the handler
  * is about to perform; it must never let unvalidated input lower a requirement.
+ *
+ * Pass an array when more than one function admits the call. One grant is enough.
  */
 export function requirePermission(
-  required: PermissionRequest | ((data: unknown) => PermissionRequest)
+  required:
+    | PermissionRequest
+    | ((data: unknown) => PermissionRequest)
+    | readonly PermissionRequest[]
 ) {
   return createMiddleware({ type: "function" })
     .middleware([requireSession])
     .server(({ next, context, data }) => {
-      const request = typeof required === "function" ? required(data) : required;
-      if (!can(context.user.role, request)) {
+      const requests: readonly PermissionRequest[] =
+        typeof required === "function"
+          ? [required(data)]
+          : Array.isArray(required)
+            ? required
+            : [required];
+      if (!requests.some(request => can(context.user.role, request))) {
         throw new AuthorizationError("Forbidden");
       }
 

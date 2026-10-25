@@ -41,6 +41,8 @@ import type {
   EventRequestDraftFormValues,
   EventRequestDraftValues,
 } from "#/features/event-requests/schema";
+import { INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 
 const DEFAULT_VALUES: EventRequestDraftFormValues = {
   eventName: "",
@@ -78,15 +80,20 @@ export interface EventRequestFormSubmitContext {
  */
 const EVENT_TYPE_OPTIONS = ["Workshop", "Meeting", "Training", "Social", "Conference"] as const;
 
-const ROOM_LAYOUT_OPTIONS = [
-  "Theatre",
-  "Classroom",
-  "Boardroom",
-  "Banquet",
-  "Exhibition",
-  "U-shape",
-  "Cabaret",
-] as const;
+/**
+ * PTR-161 AC6: map a stored layout preference to its maintained option on read. A stored value
+ * that matches a maintained label case-insensitively takes that label, so a legacy choice keeps
+ * its option. Anything else stays as written for the free-text path, so existing preferences
+ * are left as written (AC2).
+ */
+export function layoutOptionForPreference(
+  value: string,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[]
+): string | null {
+  const wanted = value.trim().toLocaleLowerCase("en");
+  if (wanted === "") return null;
+  return layouts.find(layout => layout.label.toLocaleLowerCase("en") === wanted)?.label ?? null;
+}
 
 const VENUE_REQUIREMENT_OPTIONS = [
   "Power outlets",
@@ -156,7 +163,6 @@ const TEXT_FIELDS = {
     label: "Room-layout preference",
     required: true,
     control: "select",
-    options: ROOM_LAYOUT_OPTIONS,
   },
   accessibilityRequirements: {
     label: "Accessibility requirements",
@@ -325,6 +331,17 @@ function CheckboxGroupControl({
   );
 }
 
+/**
+ * PTR-161: name the free-text item so it never duplicates a maintained label. The maintained
+ * list may itself offer "Other" or "Other (describe)", so take the first free label.
+ */
+export function otherLabelForOptions(options: readonly string[]): string {
+  if (!options.includes("Other")) return "Other";
+  let label = "Other (describe)";
+  for (let suffix = 2; options.includes(label); suffix += 1) label = `Other (describe) ${suffix}`;
+  return label;
+}
+
 /** A single-choice select that keeps free text through an "Other" item. */
 function SelectControl({
   id,
@@ -362,7 +379,16 @@ function SelectControl({
     onChange(next === null ? "" : next);
   };
 
-  const display = otherOpen ? "Other" : value === "" ? (optional ? "Not specified" : null) : value;
+  // The maintained list may itself offer "Other". Name the free-text item differently then,
+  // so the select never shows two identical labels.
+  const otherLabel = otherLabelForOptions(options);
+  const display = otherOpen
+    ? otherLabel
+    : value === ""
+      ? optional
+        ? "Not specified"
+        : null
+      : value;
 
   return (
     <>
@@ -382,7 +408,7 @@ function SelectControl({
               {option}
             </SelectItem>
           ))}
-          <SelectItem value="__other">Other</SelectItem>
+          <SelectItem value="__other">{otherLabel}</SelectItem>
           <SelectItem value={null}>{optional ? "Not specified" : "Choose one"}</SelectItem>
         </SelectContent>
       </Select>
@@ -435,7 +461,10 @@ const REGISTRATION_FIELDS = [
  * Map stored values to the form shape. Inputs cannot preserve some stored values, such as numbers,
  * absent quantities, or a missing date row. This mapping only goes from stored data to the form.
  */
-function toFormValues(initial: EventRequestDraftValues): EventRequestDraftFormValues {
+function toFormValues(
+  initial: EventRequestDraftValues,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[]
+): EventRequestDraftFormValues {
   return {
     eventName: initial.eventName,
     purpose: initial.purpose,
@@ -444,7 +473,9 @@ function toFormValues(initial: EventRequestDraftValues): EventRequestDraftFormVa
     description: initial.description,
     eventType: initial.eventType,
     venueRequirements: initial.venueRequirements,
-    roomLayoutPreference: initial.roomLayoutPreference,
+    roomLayoutPreference:
+      layoutOptionForPreference(initial.roomLayoutPreference, layouts) ??
+      initial.roomLayoutPreference,
     accessibilityRequirements: initial.accessibilityRequirements,
     specialArrangements: initial.specialArrangements,
     proposedDates: (initial.proposedDates.length ? initial.proposedDates : [{}]).map(date => ({
@@ -465,8 +496,11 @@ function toFormValues(initial: EventRequestDraftValues): EventRequestDraftFormVa
   };
 }
 
-function toDefaultFormValues(initial?: EventRequestDraftValues): EventRequestFormValues {
-  return { ...(initial ? toFormValues(initial) : DEFAULT_VALUES), replyBody: "" };
+function toDefaultFormValues(
+  initial: EventRequestDraftValues | undefined,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[]
+): EventRequestFormValues {
+  return { ...(initial ? toFormValues(initial, layouts) : DEFAULT_VALUES), replyBody: "" };
 }
 
 /**
@@ -641,6 +675,7 @@ function draftValidator({
 
 export function EventRequestForm({
   initialValues,
+  layouts = INITIAL_ROOM_LAYOUTS,
   onSave,
   onSubmitRequest,
   editableFields,
@@ -653,6 +688,12 @@ export function EventRequestForm({
   onDirtyChange,
 }: {
   initialValues?: EventRequestDraftValues;
+  /**
+   * The maintained room layout list, from the route loader. A new layout type appears in the
+   * room-layout preference without a code change (PTR-161 AC1). Without it the form offers the
+   * six initials, as the session fields do.
+   */
+  layouts?: readonly RoomLayout[];
   onSave: (
     values: EventRequestDraftValues,
     context: EventRequestFormSubmitContext
@@ -689,7 +730,8 @@ export function EventRequestForm({
 
   // Keep these values for this mount. `isDefaultValue` compares against them; rebuilding them after
   // a parent render would mark untouched fields as changed. Remount with a new `key` to load new values.
-  const [defaultValues] = useState(() => toDefaultFormValues(initialValues));
+  const [defaultValues] = useState(() => toDefaultFormValues(initialValues, layouts));
+  const layoutOptions = layouts.map(layout => layout.label);
   const replyBodyLabel = replyBody?.label;
   const collectErrors = (fieldMeta: Record<string, { errors?: readonly unknown[] } | undefined>) =>
     collectFormErrors(fieldMeta, name => requestFieldTarget(name, inputId, replyBodyLabel));
@@ -1047,7 +1089,8 @@ export function EventRequestForm({
     },
     {
       key: "roomLayoutPreference",
-      render: () => renderTextField(textField("roomLayoutPreference")),
+      render: () =>
+        renderTextField({ ...textField("roomLayoutPreference"), options: layoutOptions }),
     },
     {
       key: "accessibilityRequirements",
@@ -1223,7 +1266,9 @@ export function EventRequestForm({
           </div>
           <div className="grid gap-6 md:grid-cols-2">
             <div className="md:col-span-2">{renderTextField(textField("venueRequirements"))}</div>
-            <div>{renderTextField(textField("roomLayoutPreference"))}</div>
+            <div>
+              {renderTextField({ ...textField("roomLayoutPreference"), options: layoutOptions })}
+            </div>
             <div>{renderTextField(textField("specialArrangements"))}</div>
             <div className="md:col-span-2">
               {renderTextField(textField("accessibilityRequirements"))}

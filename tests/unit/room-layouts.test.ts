@@ -79,6 +79,16 @@ describe("PTR-161 room layout list", () => {
     expect(parseLayouts("Usual seating", layouts)).toEqual([]);
   });
 
+  it("matches the multi-word label U-shape as a whole phrase (AC5)", () => {
+    const layouts = [...INITIAL_ROOM_LAYOUTS, { key: "u-shape", label: "U-shape" }];
+    expect(parseLayouts("We prefer U-shape, theatre style", layouts)).toEqual([
+      "theatre",
+      "u-shape",
+    ]);
+    expect(parseLayouts("WE PREFER U-SHAPE", layouts)).toEqual(["u-shape"]);
+    expect(parseLayouts("Our usual shape", layouts)).toEqual([]);
+  });
+
   it("checks only the key shape, so a new key passes validation", () => {
     expect(parseRoomLayoutInput({ key: "cabaret", label: "Cabaret" })).toEqual({
       key: "cabaret",
