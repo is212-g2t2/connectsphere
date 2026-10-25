@@ -1,11 +1,14 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Button } from "#/components/ui/button";
+import { Card, CardContent } from "#/components/ui/card";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import { IconAction } from "#/components/ui/icon-action";
 import { Input } from "#/components/ui/input";
 import {
   EquipmentTypeFormInput,
@@ -57,44 +60,54 @@ export function EquipmentCataloguePage({ types }: { types: EquipmentTypeOption[]
         <ul className="mt-4 space-y-4">
           {types.map(type =>
             editing === type.id ? (
-              <li key={type.id} className="rounded-lg border border-border p-4">
-                <TypeForm
-                  initial={{ name: type.name, quantityHeld: String(type.quantityHeld) }}
-                  typeId={type.id}
-                  onDone={() => {
-                    setEditing(null);
-                    void refresh();
-                  }}
-                  onCancel={() => setEditing(null)}
-                />
+              <li key={type.id}>
+                <Card>
+                  <CardContent>
+                    <TypeForm
+                      initial={{ name: type.name, quantityHeld: String(type.quantityHeld) }}
+                      typeId={type.id}
+                      onDone={() => {
+                        setEditing(null);
+                        void refresh();
+                      }}
+                      onCancel={() => setEditing(null)}
+                    />
+                  </CardContent>
+                </Card>
               </li>
             ) : (
-              <li key={type.id} className="rounded-lg border border-border p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="font-medium">{type.name}</h3>
-                    <p className="mt-1 body-sm text-muted-foreground">
-                      {type.quantityHeld} held
-                      {type.totalUnavailable > 0 && `, ${type.totalUnavailable} out of service`}
-                    </p>
-                    {type.unavailable.length > 0 && (
-                      <ul className="mt-2 space-y-1 body-sm text-muted-foreground">
-                        {type.unavailable.map(row => (
-                          <li key={row.reason}>
-                            {row.reason}: {row.quantityUnavailable} out of service
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(type.id)}>
-                      Edit
-                    </Button>
-                    <DeleteTypeButton typeId={type.id} onDone={() => void refresh()} />
-                  </div>
-                </div>
-                <UnavailabilityForm typeId={type.id} onDone={() => void refresh()} />
+              <li key={type.id}>
+                <Card>
+                  <CardContent>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="font-medium">{type.name}</h3>
+                        <p className="mt-1 body-sm text-muted-foreground">
+                          {type.quantityHeld} held
+                          {type.totalUnavailable > 0 && `, ${type.totalUnavailable} out of service`}
+                        </p>
+                        {type.unavailable.length > 0 && (
+                          <ul className="mt-2 space-y-1 body-sm text-muted-foreground">
+                            {type.unavailable.map(row => (
+                              <li key={row.reason}>
+                                {row.reason}: {row.quantityUnavailable} out of service
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <IconAction
+                          label="Edit"
+                          icon={<Pencil />}
+                          onClick={() => setEditing(type.id)}
+                        />
+                        <DeleteTypeButton typeId={type.id} onDone={() => void refresh()} />
+                      </div>
+                    </div>
+                    <UnavailabilityForm typeId={type.id} onDone={() => void refresh()} />
+                  </CardContent>
+                </Card>
               </li>
             )
           )}
@@ -102,17 +115,19 @@ export function EquipmentCataloguePage({ types }: { types: EquipmentTypeOption[]
       )}
 
       {editing === "new" && (
-        <div className="mt-4 rounded-lg border border-border p-4">
-          <TypeForm
-            initial={{ name: "", quantityHeld: "" }}
-            typeId={undefined}
-            onDone={() => {
-              setEditing(null);
-              void refresh();
-            }}
-            onCancel={() => setEditing(null)}
-          />
-        </div>
+        <Card className="mt-4">
+          <CardContent>
+            <TypeForm
+              initial={{ name: "", quantityHeld: "" }}
+              typeId={undefined}
+              onDone={() => {
+                setEditing(null);
+                void refresh();
+              }}
+              onCancel={() => setEditing(null)}
+            />
+          </CardContent>
+        </Card>
       )}
     </Page>
   );
@@ -236,9 +251,13 @@ function DeleteTypeButton({ typeId, onDone }: { typeId: number; onDone: () => vo
 
   return (
     <span className="inline-flex flex-col items-end gap-1">
-      <Button variant="ghost" size="sm" disabled={removing} onClick={() => void remove()}>
-        {removing ? "Deleting…" : "Delete"}
-      </Button>
+      <IconAction
+        label={removing ? "Deleting" : "Delete"}
+        icon={removing ? <Loader2 className="animate-spin" /> : <Trash2 />}
+        tone="danger"
+        disabled={removing}
+        onClick={() => void remove()}
+      />
       {state.status === "error" && (
         <span role="alert" className="body-sm text-destructive">
           {state.error}
