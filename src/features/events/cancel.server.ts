@@ -75,7 +75,8 @@ function eventName(event: { eventName: string }): string {
  * Coordinator is the processor, and the Organiser gets the existing decline notice for each.
  *
  * PTR-164 AC1: the Coordinator enters a reason, stored on the cancellation request and carried on
- * every cancellation notice.
+ * the Organiser's and the Attendees' cancellation notices. The staff copies keep their anonymous
+ * wording and carry no reason (AC5).
  */
 export async function handleCancelEvent(data: unknown, actor: SessionUser, database: Database) {
   const input = parseEventCancellationInput(data);
@@ -126,7 +127,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       .returning({ whatShouldChange: eventChangeRequests.whatShouldChange });
 
     await raiseNotifications(tx, [
-      ...(await staffNotices(tx, event.id, eventName(event), input.reason)),
+      ...(await staffNotices(tx, event.id, eventName(event))),
       ...(await attendeeNotices(tx, event.id, eventName(event), input.reason)),
       {
         recipientId: event.organiserId,
@@ -164,13 +165,13 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
  * PTR-54 AC3: Notify the Venue Staff member for each approved booking, once per booking. Their
  * notice names the booking, not the event (PTR-8). Notify each Technical Support member with a
  * reservation once. If a staff account was deleted, no one receives a notice. Keep the item in the
- * shared queue and on the Coordinator's list.
+ * shared queue and on the Coordinator's list. PTR-164 AC5: neither copy carries the free-text
+ * reason, so it cannot identify the event to Venue Staff.
  */
 async function staffNotices(
   tx: Pick<Database, "select" | "selectDistinct">,
   eventId: number,
-  name: string,
-  reason: string
+  name: string
 ): Promise<NewNotification[]> {
   const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, eventId);
 
@@ -180,7 +181,7 @@ async function staffNotices(
       recipientId: staffId,
       eventRequestId: eventId,
       kind: "event_cancelled",
-      payload: { audience: "venue_staff", venueName, startsAt, endsAt, reason },
+      payload: { audience: "venue_staff", venueName, startsAt, endsAt },
     });
   }
   for (const staffId of reservationStaffIds) {
@@ -188,13 +189,16 @@ async function staffNotices(
       recipientId: staffId,
       eventRequestId: eventId,
       kind: "event_cancelled",
-      payload: { audience: "technical_support", eventName: name, reason },
+      payload: { audience: "technical_support", eventName: name },
     });
   }
   return notices;
 }
 
-/** PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs, and every waitlisted Attendee. */
+/**
+ * PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs, and every waitlisted
+ * Attendee. PTR-164 AC1: their copy carries the reason; they already know the event.
+ */
 async function attendeeNotices(
   tx: Pick<Database, "select">,
   eventId: number,

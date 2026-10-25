@@ -562,8 +562,8 @@ export function parseEventCancellationDeclineInput(data: unknown) {
 }
 
 /**
- * PTR-164 AC1: the Coordinator must give a reason when they cancel the event. The cancellation
- * notice to staff, the Organiser and Attendees carries it.
+ * PTR-164 AC1: the Coordinator must give a reason when they cancel the event. The Organiser's
+ * cancellation notice carries it.
  */
 export const CANCELLATION_REASON_MAX = 2000;
 export const CANCELLATION_REASON_REQUIRED_MESSAGE = "Enter a reason for cancelling";

@@ -49,6 +49,7 @@ const base = {
   clarifications: [],
   changeRequests: [],
   cancellationRequests: [],
+  informationChanges: [],
 } as unknown as EventRequestDetail;
 
 function page(status: EventRequestStatus, request: EventRequestDetail): EventPageData {
@@ -190,6 +191,53 @@ describe("organiserRequestSections", () => {
     expect(screen.getByText("Move the start to 11:00")).toBeTruthy();
     expect(screen.getByText("The booking is already confirmed.")).toBeTruthy();
     expect(screen.getByText(/Declined by Jonas Weber/)).toBeTruthy();
+  });
+
+  it("renders the information changes directly after the change requests (PTR-164 AC3)", () => {
+    const request = {
+      ...base,
+      changeRequests: [
+        {
+          id: 3,
+          createdAt: new Date("2026-09-20T02:00:00Z"),
+          whatShouldChange: "Start time",
+          requestedValue: "Move the start to 11:00",
+          outcome: "applied",
+          declineReason: null,
+          processedByName: "Jonas Weber",
+          processedAt: new Date("2026-09-21T02:00:00Z"),
+        },
+      ],
+      informationChanges: [
+        {
+          id: 5,
+          field: "expectedAttendance",
+          amendment: { from: 40, to: 120 },
+          changedByName: "Jonas Weber",
+          changedAt: new Date("2026-09-21T02:00:00Z"),
+          reason: "The organiser confirmed the new attendance.",
+        },
+      ],
+      cancellationRequests: [
+        {
+          id: 1,
+          createdAt: new Date("2026-10-01T02:00:00Z"),
+          outcome: "declined",
+          declineReason: "The booking is already confirmed.",
+          processedByName: "Jonas Weber",
+          processedAt: new Date("2026-10-02T02:00:00Z"),
+        },
+      ],
+    } as unknown as EventRequestDetail;
+    renderRequests("confirmed", request);
+
+    const order = ["Change requests", "Information changes", "Cancellation requests"].map(name =>
+      screen.getByRole("heading", { name })
+    );
+    expect(order[0].compareDocumentPosition(order[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(order[1].compareDocumentPosition(order[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByText("Expected attendance")).toBeTruthy();
+    expect(screen.getByText("The organiser confirmed the new attendance.")).toBeTruthy();
   });
 
   it("links the coordinator contact by email", () => {

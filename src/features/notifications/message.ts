@@ -267,7 +267,10 @@ const payloadSchemas = {
    * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. The Venue
    * Staff copy names the booking to release and not the event, as every Venue Staff notice does
    * (PTR-8 AC3). The bookings view it opens names the event, as PTR-37 AC1 requires.
-   * PTR-164 AC1: every copy carries the Coordinator's reason. Optional so stored rows still parse.
+   * PTR-164 AC1, AC5: the Organiser's and each Attendee's copy carries the Coordinator's
+   * reason; Attendees already know the event. The staff copies keep their anonymous wording with
+   * no reason, so it cannot identify the event. The reason stays optional so stored rows still
+   * parse (AC6).
    */
   event_cancelled: z.discriminatedUnion("audience", [
     z.object({
@@ -318,8 +321,9 @@ const payloadSchemas = {
    * PTR-23 AC5: which significant fields changed, told to the staff holding an arrangement. The
    * Venue Staff copy names the booking and not the event, as every Venue Staff notice does
    * (PTR-8 AC3); the Technical Support copy names the event their reservation is for.
-   * PTR-164 AC2, AC3: every copy carries the Coordinator's reason, and the Organiser receives a
-   * copy too. Optional so stored rows still parse.
+   * PTR-164 AC3, AC5: the Organiser receives a copy with the Coordinator's reason; the staff
+   * copies keep their anonymous wording with no reason. The reason stays optional so stored rows
+   * still parse (AC6).
    */
   event_significant_change: z.discriminatedUnion("audience", [
     z.object({

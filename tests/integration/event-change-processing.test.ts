@@ -482,6 +482,20 @@ describe("processing a change request (PTR-52)", () => {
     expect(holderNotices.map(notice => notice.recipientId).toSorted()).toEqual(
       [venueStaff.id, technicalSupport.id].toSorted()
     );
+    // The holders' copies carry no free-text reason (PTR-164 AC5).
+    const holderRows = await database
+      .select({ payload: schema.notifications.payload })
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.eventRequestId, event.id),
+          eq(schema.notifications.kind, "event_significant_change")
+        )
+      );
+    for (const row of holderRows) {
+      if ((row.payload as { audience: string }).audience === "organiser") continue;
+      expect(row.payload).not.toHaveProperty("reason");
+    }
     expect(await organiserNotices(event.id)).toHaveLength(1);
   });
 
