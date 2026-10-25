@@ -44,6 +44,7 @@ const ACTIVE_TARGETS = [
   "/venue-bookings",
   "/venue-holds",
   "/safety-reviews",
+  "/equipment-types",
   "/venues",
   "/dashboard",
 ] as const;
@@ -111,6 +112,7 @@ export function Header() {
     { to: "/venue-bookings", label: "Approved bookings", show: showApprovedBookings },
     { to: "/venue-holds", label: "Hold requests", show: showApprovedBookings },
     { to: "/safety-reviews", label: "Safety reviews", show: showSafetyReviews },
+    { to: "/equipment-types", label: "Equipment catalogue", show: showEquipmentCatalogue },
   ].filter(destination => destination.show);
 
   return (
