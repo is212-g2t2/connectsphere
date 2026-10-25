@@ -2,6 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import { computeEquipmentShortfalls } from "#/features/equipment-requests/availability";
 import {
+  EQUIPMENT_UNAVAILABLE_QUANTITY_MESSAGE,
+  equipmentHeldBelowUnavailableMessage,
+  equipmentUnavailabilityMissingMessage,
   parseEquipmentTypeInput,
   parseEquipmentUnavailabilityInput,
   parseMapEquipmentLineInput,
@@ -44,6 +47,36 @@ describe("equipment catalogue input (PTR-162)", () => {
         quantityUnavailable: 2,
       })
     ).toThrow("Enter a reason for the out-of-service units");
+  });
+
+  test("accepts zero to clear an out-of-service reason", () => {
+    expect(
+      parseEquipmentUnavailabilityInput({
+        equipmentTypeId: 3,
+        reason: "Maintenance",
+        quantityUnavailable: 0,
+      })
+    ).toEqual({ equipmentTypeId: 3, reason: "Maintenance", quantityUnavailable: 0 });
+  });
+
+  test("refuses a negative out-of-service quantity", () => {
+    expect(() =>
+      parseEquipmentUnavailabilityInput({
+        equipmentTypeId: 3,
+        reason: "Maintenance",
+        quantityUnavailable: -1,
+      })
+    ).toThrow(EQUIPMENT_UNAVAILABLE_QUANTITY_MESSAGE);
+  });
+
+  test("the held-path refusal names the blocking total", () => {
+    expect(equipmentHeldBelowUnavailableMessage(2, 3)).toContain("3");
+  });
+
+  test("the missing-entry refusal names the reason", () => {
+    expect(equipmentUnavailabilityMissingMessage("Repair")).toBe(
+      "No out-of-service entry for Repair."
+    );
   });
 
   test("accepts a line-to-type mapping", () => {

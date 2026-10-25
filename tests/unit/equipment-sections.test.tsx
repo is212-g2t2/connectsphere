@@ -241,6 +241,85 @@ describe("equipment sections", () => {
     expect(screen.getByRole("button", { name: /Reduce or release/ })).toBeTruthy();
   });
 
+  it("hides Reserve on an unmapped line until it is mapped", () => {
+    renderSections(
+      page(
+        "technical_support",
+        {
+          name: "Community Hack Night",
+          equipment: [
+            {
+              id: "line-a",
+              item: "Free-text projector",
+              quantity: 2,
+              arrangementStatus: "requested",
+              notes: null,
+              arrangeable: true,
+              assignedStaffName: null,
+              reservedQuantity: null,
+              lastRelease: null,
+              equipmentTypeId: null,
+            },
+          ],
+          equipmentArrangementsCompletedAt: null,
+        },
+        {
+          equipmentTypes: [
+            {
+              id: 1,
+              name: "Projector",
+              quantityHeld: 10,
+              totalUnavailable: 0,
+              unavailable: [],
+            },
+          ],
+        }
+      )
+    );
+
+    expect(screen.queryByRole("button", { name: /Reserve/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Map to type" })).toBeTruthy();
+  });
+
+  it("shows Reserve on a mapped line", () => {
+    renderSections(
+      page(
+        "technical_support",
+        {
+          name: "Community Hack Night",
+          equipment: [
+            {
+              id: "line-a",
+              item: "Projector",
+              quantity: 2,
+              arrangementStatus: "requested",
+              notes: null,
+              arrangeable: true,
+              assignedStaffName: null,
+              reservedQuantity: null,
+              lastRelease: null,
+              equipmentTypeId: 1,
+            },
+          ],
+          equipmentArrangementsCompletedAt: null,
+        },
+        {
+          equipmentTypes: [
+            {
+              id: 1,
+              name: "Projector",
+              quantityHeld: 10,
+              totalUnavailable: 0,
+              unavailable: [],
+            },
+          ],
+        }
+      )
+    );
+
+    expect(screen.getByRole("button", { name: "Reserve equipment for Projector" })).toBeTruthy();
+  });
+
   it("shows technical support the completion once recorded", () => {
     renderSections(
       page("technical_support", {

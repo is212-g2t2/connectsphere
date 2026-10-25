@@ -17,6 +17,9 @@ import { loadWorkableLines } from "#/features/equipment-requests/equipment.serve
 import {
   EQUIPMENT_CATALOGUE_DELETE_REFUSAL,
   EQUIPMENT_CATALOGUE_DUPLICATE_MESSAGE,
+  EQUIPMENT_UNAVAILABILITY_EXCEEDS_HELD_MESSAGE,
+  equipmentHeldBelowUnavailableMessage,
+  equipmentUnavailabilityMissingMessage,
   parseAvailabilityCheckInput,
   parseEquipmentTypeId,
   parseEquipmentTypeInput,
@@ -198,8 +201,9 @@ export async function handleSaveEquipmentType(
   database: Database
 ) {
   const input = parseEquipmentTypeInput(data);
+  const typeId = input.id;
   try {
-    if (input.id === undefined) {
+    if (typeId === undefined) {
       const insertedRows = await database
         .insert(equipmentTypes)
         .values({ name: input.name, quantityHeld: input.quantityHeld })
@@ -208,14 +212,42 @@ export async function handleSaveEquipmentType(
       if (!inserted) throw new NotFoundError("Not Found");
       return inserted;
     }
-    const updatedRows = await database
-      .update(equipmentTypes)
-      .set({ name: input.name, quantityHeld: input.quantityHeld })
-      .where(eq(equipmentTypes.id, input.id))
-      .returning();
-    const updated = updatedRows.at(0);
-    if (!updated) throw new NotFoundError("Not Found");
-    return updated;
+    // PTR-162 AC2: refuse a held quantity below the recorded out-of-service total, so
+    // availability never silently clamps at zero. Lock the type row first, as the
+    // unavailability writer does, so a concurrent out-of-service write cannot slip between
+    // the read and the update.
+    return database.transaction(async tx => {
+      const type = (
+        await tx
+          .select({ id: equipmentTypes.id })
+          .from(equipmentTypes)
+          .where(eq(equipmentTypes.id, typeId))
+          .for("update")
+          .limit(1)
+      ).at(0);
+      if (!type) throw new NotFoundError("Not Found");
+      const unavailableRows = await tx
+        .select({ quantityUnavailable: equipmentUnavailability.quantityUnavailable })
+        .from(equipmentUnavailability)
+        .where(eq(equipmentUnavailability.equipmentTypeId, typeId));
+      const totalUnavailable = unavailableRows.reduce(
+        (sum, row) => sum + row.quantityUnavailable,
+        0
+      );
+      if (totalUnavailable > input.quantityHeld) {
+        throw new ConflictError(
+          equipmentHeldBelowUnavailableMessage(input.quantityHeld, totalUnavailable)
+        );
+      }
+      const updatedRows = await tx
+        .update(equipmentTypes)
+        .set({ name: input.name, quantityHeld: input.quantityHeld })
+        .where(eq(equipmentTypes.id, typeId))
+        .returning();
+      const updated = updatedRows.at(0);
+      if (!updated) throw new NotFoundError("Not Found");
+      return updated;
+    });
   } catch (error) {
     if (isConstraintViolation(error, "equipment_types_name_unique")) {
       throw new ConflictError(EQUIPMENT_CATALOGUE_DUPLICATE_MESSAGE);
@@ -247,6 +279,9 @@ export async function handleDeleteEquipmentType(
       .limit(1),
   ]);
   if (line.length > 0 || reservation.length > 0) {
+    // The line check fires first: every reservation belongs to a line, and the reserve path
+    // stamps that line with the same type. The reservation check is defence-in-depth; the
+    // `restrict` foreign keys refuse either way (`db-schema.test.ts` asserts both actions).
     throw new ConflictError(EQUIPMENT_CATALOGUE_DELETE_REFUSAL);
   }
   const deletedRows = await database
@@ -260,8 +295,9 @@ export async function handleDeleteEquipmentType(
 
 /**
  * PTR-162 AC2: record or change the out-of-service quantity for one type and reason. Keep one
- * row per reason so an update does not count the same units twice. Lock the type row first so
- * concurrent saves serialize on the type.
+ * row per reason so an update does not count the same units twice. Enter 0 to clear the
+ * reason: the handler deletes the row, so a held quantity can recover below a recorded total.
+ * Lock the type row first so concurrent saves serialize on the type.
  */
 export async function handleSaveEquipmentUnavailability(
   data: unknown,
@@ -272,25 +308,38 @@ export async function handleSaveEquipmentUnavailability(
   return database.transaction(async tx => {
     const type = (
       await tx
-        .select({ id: equipmentTypes.id })
+        .select({ id: equipmentTypes.id, quantityHeld: equipmentTypes.quantityHeld })
         .from(equipmentTypes)
         .where(eq(equipmentTypes.id, input.equipmentTypeId))
         .for("update")
         .limit(1)
     ).at(0);
     if (!type) throw new NotFoundError("Not Found");
-    const existing = (
-      await tx
-        .select({ id: equipmentUnavailability.id })
-        .from(equipmentUnavailability)
-        .where(
-          and(
-            eq(equipmentUnavailability.equipmentTypeId, input.equipmentTypeId),
-            eq(equipmentUnavailability.reason, input.reason)
-          )
-        )
-        .limit(1)
-    ).at(0);
+    const rows = await tx
+      .select({
+        id: equipmentUnavailability.id,
+        reason: equipmentUnavailability.reason,
+        quantityUnavailable: equipmentUnavailability.quantityUnavailable,
+      })
+      .from(equipmentUnavailability)
+      .where(eq(equipmentUnavailability.equipmentTypeId, input.equipmentTypeId));
+    // PTR-162 AC2: refuse a total that exceeds the quantity held, so availability never
+    // silently clamps at zero.
+    const otherUnavailable = rows
+      .filter(row => row.reason !== input.reason)
+      .reduce((sum, row) => sum + row.quantityUnavailable, 0);
+    if (otherUnavailable + input.quantityUnavailable > type.quantityHeld) {
+      throw new ConflictError(EQUIPMENT_UNAVAILABILITY_EXCEEDS_HELD_MESSAGE);
+    }
+    const existing = rows.find(row => row.reason === input.reason);
+    if (input.quantityUnavailable === 0) {
+      if (!existing) throw new NotFoundError(equipmentUnavailabilityMissingMessage(input.reason));
+      const [deleted] = await tx
+        .delete(equipmentUnavailability)
+        .where(eq(equipmentUnavailability.id, existing.id))
+        .returning();
+      return deleted;
+    }
     if (existing) {
       const [updated] = await tx
         .update(equipmentUnavailability)

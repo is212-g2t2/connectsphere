@@ -42,6 +42,12 @@ export const requireEquipmentArrange = requirePermission({
   equipment_request: ["arrange"],
 });
 
+/** PTR-162: Technical Support maintains the equipment catalogue. Catalogue writes use this
+ * verb, never `equipment_request:arrange`. */
+export const requireEquipmentTypeManage = requirePermission({
+  equipment_type: ["manage"],
+});
+
 /**
  * PTR-39 AC3: Technical Support sets a line's state, adds notes, or does both. The work list and
  * request detail use `listEvents` to read the caller's events. That function applies access rules
@@ -165,9 +171,9 @@ export const checkEquipmentAvailability = createServerFn({ method: "POST" })
     return handleCheckEquipmentAvailability(data, context.user, db);
   });
 
-/** PTR-40: List the equipment types for Technical Support's availability picker. */
+/** PTR-162: the catalogue list. Technical Support maintains the catalogue, so the list uses the catalogue-manage verb, as its route guard does. */
 export const listEquipmentTypes = createServerFn({ method: "GET" })
-  .middleware([requireEquipmentArrange])
+  .middleware([requireEquipmentTypeManage])
   .handler(async () => {
     const [{ db }, { handleListEquipmentTypes }] = await Promise.all([
       import("#/db"),
@@ -179,7 +185,7 @@ export const listEquipmentTypes = createServerFn({ method: "GET" })
 /** PTR-162 AC1: add a type or change its quantity held. Technical Support maintains the catalogue. */
 export const saveEquipmentType = createServerFn({ method: "POST" })
   .validator(parseEquipmentTypeInput)
-  .middleware([requireEquipmentArrange])
+  .middleware([requireEquipmentTypeManage])
   .handler(async ({ data, context }) => {
     const [{ db }, { handleSaveEquipmentType }] = await Promise.all([
       import("#/db"),
@@ -199,7 +205,7 @@ export const saveEquipmentType = createServerFn({ method: "POST" })
 /** PTR-162 AC4: delete a type that no line or reservation references. */
 export const deleteEquipmentType = createServerFn({ method: "POST" })
   .validator(parseEquipmentTypeId)
-  .middleware([requireEquipmentArrange])
+  .middleware([requireEquipmentTypeManage])
   .handler(async ({ data, context }) => {
     const [{ db }, { handleDeleteEquipmentType }] = await Promise.all([
       import("#/db"),
@@ -218,7 +224,7 @@ export const deleteEquipmentType = createServerFn({ method: "POST" })
 /** PTR-162 AC2: record or change the out-of-service quantity for one type and reason. */
 export const saveEquipmentUnavailability = createServerFn({ method: "POST" })
   .validator(parseEquipmentUnavailabilityInput)
-  .middleware([requireEquipmentArrange])
+  .middleware([requireEquipmentTypeManage])
   .handler(async ({ data, context }) => {
     const [{ db }, { handleSaveEquipmentUnavailability }] = await Promise.all([
       import("#/db"),

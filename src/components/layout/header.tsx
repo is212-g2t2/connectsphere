@@ -93,7 +93,7 @@ export function Header() {
   const showRoomLayouts = can(role, { venue: ["update"] });
   const showApprovedBookings = can(role, { venue_request: ["decide"] });
   const showSafetyReviews = can(role, { safety_review: ["read"] });
-  const showEquipmentCatalogue = can(role, { equipment_request: ["arrange"] });
+  const showEquipmentCatalogue = can(role, { equipment_type: ["manage"] });
   const showSections =
     showEventRequests ||
     showCoordination ||
