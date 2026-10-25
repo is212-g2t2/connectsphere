@@ -20,6 +20,7 @@ import {
   EVENT_CANCELLED_CLOSEOUT_REASON,
   NO_CANCELLATION_REQUEST_MESSAGE,
 } from "#/features/events/cancellation";
+import { closeOutProcessorName } from "#/features/events/completion";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
@@ -89,7 +90,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       .set({
         status: "cancelled",
         cancelledById: actor.id,
-        cancelledByName: actor.name,
+        cancelledByName: closeOutProcessorName(actor),
         cancelledAt: now,
       })
       .where(eq(eventRequests.id, event.id))
@@ -99,7 +100,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       .set({
         outcome: "cancelled",
         processedById: actor.id,
-        processedByName: actor.name,
+        processedByName: closeOutProcessorName(actor),
         processedAt: now,
       })
       .where(eq(eventCancellationRequests.id, request.id));
@@ -112,7 +113,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
         outcome: "declined",
         declineReason: EVENT_CANCELLED_CLOSEOUT_REASON,
         processedById: actor.id,
-        processedByName: actor.name,
+        processedByName: closeOutProcessorName(actor),
         processedAt: now,
       })
       .where(
@@ -228,7 +229,7 @@ export async function handleDeclineEventCancellation(
         outcome: "declined",
         declineReason: input.reason,
         processedById: actor.id,
-        processedByName: actor.name,
+        processedByName: closeOutProcessorName(actor),
         processedAt: new Date(),
       })
       .where(eq(eventCancellationRequests.id, request.id))
@@ -238,7 +239,7 @@ export async function handleDeclineEventCancellation(
         recipientId: event.organiserId,
         eventRequestId: event.id,
         kind: "event_cancellation_declined",
-        payload: { eventName: eventName(event), reason: input.reason },
+        payload: { eventName: eventName(event), reason: input.reason, eventStatus: event.status },
       },
     ]);
 

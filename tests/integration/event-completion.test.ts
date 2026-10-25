@@ -8,6 +8,10 @@ import * as schema from "#/db/schema";
 import { runSeed } from "../../scripts/seed";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import {
+  handleGetCoordinationRequest,
+  handleListAssignedEventRequests,
+} from "#/features/coordination/assignments.server";
 import { handleReserveEquipment } from "#/features/equipment-requests/reservations.server";
 import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
 import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
@@ -288,8 +292,52 @@ describe("completing an event (PTR-25)", () => {
     expect(cancellationNotices).toHaveLength(1);
     expect(cancellationNotices[0]).toMatchObject({
       recipientId: organiser.id,
-      payload: { eventName: event.eventName, reason: "Event completed" },
+      payload: {
+        eventName: event.eventName,
+        reason: "Event completed",
+        closeOut: true,
+        eventStatus: "completed",
+      },
     });
+
+    // A closed request no longer counts as waiting on the Coordinator's list or detail view.
+    const assigned = await handleListAssignedEventRequests(coordinator, database as never);
+    expect(assigned.find(row => row.id === event.id)?.changeRequestsWaiting).toBe(0);
+    const view = await handleGetCoordinationRequest(
+      { id: event.id },
+      coordinator,
+      database as never
+    );
+    expect(view.changeRequests.map(request => request.outcome)).toEqual(["declined"]);
+    expect(view.cancellationRequests.map(request => request.outcome)).toEqual(["declined"]);
+  });
+
+  test("falls back to the email for the processor when the Coordinator name is blank (PTR-156)", async () => {
+    const event = await createConfirmedEvent();
+    await handleRaiseEventChangeRequest(
+      { id: event.id, whatShouldChange: "Expected attendance", requestedValue: "120 attendees" },
+      organiser,
+      database as never
+    );
+    await handleRequestEventCancellation({ id: event.id }, organiser, database as never);
+
+    await complete(event.id, { ...coordinator, name: "" });
+
+    const [saved] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, event.id));
+    expect(saved.completedByName).toBe(coordinator.email);
+    const [change] = await database
+      .select()
+      .from(schema.eventChangeRequests)
+      .where(eq(schema.eventChangeRequests.eventRequestId, event.id));
+    expect(change.processedByName).toBe(coordinator.email);
+    const [cancellation] = await database
+      .select()
+      .from(schema.eventCancellationRequests)
+      .where(eq(schema.eventCancellationRequests.eventRequestId, event.id));
+    expect(cancellation.processedByName).toBe(coordinator.email);
   });
 
   test("refuses a new venue booking after completion", async () => {
