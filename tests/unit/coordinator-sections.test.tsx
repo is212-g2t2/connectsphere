@@ -75,6 +75,7 @@ function coordinationRequest(overrides: Record<string, unknown> = {}): Coordinat
     clarifications: [],
     changeRequests: [],
     cancellationRequests: [],
+    informationChanges: [],
     outstandingReleases: null,
     ...overrides,
   } as unknown as CoordinationRequest;
@@ -460,6 +461,58 @@ describe("changes section", () => {
         ?.visible(full)
     ).toBe(true);
   });
+
+  it("shows the information changes with their reason for the assigned coordinator", () => {
+    const changes = [
+      {
+        id: 3,
+        field: "expectedAttendance",
+        amendment: { from: 40, to: 120 },
+        changedByName: "Myself",
+        changedAt: new Date("2026-09-21T02:00:00Z"),
+        reason: "The organiser confirmed the new attendance.",
+      },
+    ];
+    const data = eventData("approved", owned({ status: "approved", informationChanges: changes }));
+    expect(
+      coordinatorSections(data)
+        .find(section => section.id === "information-changes")
+        ?.visible(data)
+    ).toBe(true);
+    renderSection(data, "information-changes");
+    expect(screen.getByRole("heading", { name: "Information changes" })).toBeTruthy();
+    expect(screen.getByText("The organiser confirmed the new attendance.")).toBeTruthy();
+  });
+
+  it("hides the information-changes section with no change log", () => {
+    const empty = eventData("approved", owned({ status: "approved" }));
+    expect(
+      coordinatorSections(empty)
+        .find(section => section.id === "information-changes")
+        ?.visible(empty)
+    ).toBe(false);
+  });
+
+  it("hides the information changes from the unassigned queue, so the Lead reads no reason", () => {
+    const changes = [
+      {
+        id: 3,
+        field: "expectedAttendance",
+        amendment: { from: 40, to: 120 },
+        changedByName: "Myself",
+        changedAt: new Date("2026-09-21T02:00:00Z"),
+        reason: "The organiser confirmed the new attendance.",
+      },
+    ];
+    const triage = triageData(
+      coordinationRequest({ status: "approved", informationChanges: changes })
+    );
+    expect(
+      coordinatorSections(triage)
+        .find(section => section.id === "information-changes")
+        ?.visible(triage)
+    ).toBe(false);
+  });
 });
 
 function leadEventData(
@@ -612,6 +665,61 @@ describe("cancellation section", () => {
       "cancellation"
     );
     expect(settled.container.textContent).toBe("");
+  });
+
+  it("keeps the decided request as history with the reason on a cancelled event (PTR-164 AC3)", () => {
+    const decided = [
+      {
+        id: 1,
+        createdAt: new Date("2026-10-01T02:00:00Z"),
+        outcome: "cancelled",
+        declineReason: null,
+        cancelReason: "The venue closed for repairs.",
+        processedByName: "Myself",
+        processedAt: new Date("2026-10-02T02:00:00Z"),
+      },
+    ];
+    const data = eventData(
+      "cancelled",
+      owned({ status: "cancelled", cancellationRequests: decided })
+    );
+    const section = coordinatorSections(data).find(
+      candidate => candidate.id === "cancellation-history"
+    );
+    expect(section?.label).toBe("Cancellation history");
+    expect(section?.visible(data)).toBe(true);
+    // The decided case is a record, not an action: the action keeps its own section.
+    expect(
+      coordinatorSections(data)
+        .find(candidate => candidate.id === "cancellation")
+        ?.visible(data)
+    ).toBe(false);
+    renderSection(data, "cancellation-history");
+    expect(screen.getByRole("heading", { name: "Cancellation requests" })).toBeTruthy();
+    expect(screen.getByText("The venue closed for repairs.")).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("hides the cancellation history from the unassigned queue, so the Lead reads no reason", () => {
+    const decided = [
+      {
+        id: 1,
+        createdAt: new Date("2026-10-01T02:00:00Z"),
+        outcome: "cancelled",
+        declineReason: null,
+        cancelReason: "The venue closed for repairs.",
+        processedByName: "Myself",
+        processedAt: new Date("2026-10-02T02:00:00Z"),
+      },
+    ];
+    const triage = triageData(
+      coordinationRequest({ status: "cancelled", cancellationRequests: decided })
+    );
+    expect(
+      coordinatorSections(triage)
+        .find(candidate => candidate.id === "cancellation-history")
+        ?.visible(triage)
+    ).toBe(false);
   });
 });
 

@@ -36,7 +36,7 @@ import { skipRootFilter } from "#/lib/invalidate";
  * released here (AC6); the page lists them once the event is cancelled. A request can wait while
  * the event is completed (PTR-25), and `canCancel` is then false: only the decline is offered.
  *
- * PTR-164 AC1: cancelling needs a reason, carried on every cancellation notice.
+ * PTR-164 AC1: cancelling needs a reason, carried on the Organiser's cancellation notice.
  */
 export function CancellationDecision({
   requestId,
@@ -129,8 +129,8 @@ export function CancellationDecision({
                   <AlertDialogHeader>
                     <AlertDialogTitle>Cancel event</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This cancels {eventName}. You cannot undo it. The Organiser, the registered
-                      Attendees and the staff holding arrangements are told why.
+                      This cancels {eventName}. You cannot undo it. The Organiser is told why; the
+                      registered Attendees and the staff holding arrangements are notified.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <form

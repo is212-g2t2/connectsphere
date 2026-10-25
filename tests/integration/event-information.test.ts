@@ -8,6 +8,7 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { handleGetEventRequest } from "#/features/event-requests/drafts.server";
+import { handleGetCoordinationRequest } from "#/features/coordination/assignments.server";
 import { SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE } from "#/features/event-requests/schema";
 import { handleListEventArrangements } from "#/features/events/arrangements.server";
 import { handleListEvents } from "#/features/events/records.server";
@@ -33,6 +34,7 @@ const technicalSupport = member(
   "Planning Technical Support"
 );
 const attendee = member("ptr22-attendee", "attendee", "Planning Attendee");
+const lead = member("ptr22-lead", "event_coordinator_lead", "Planning Lead");
 const members = [
   organiser,
   coordinator,
@@ -41,6 +43,7 @@ const members = [
   otherVenueStaff,
   technicalSupport,
   attendee,
+  lead,
 ];
 const EQUIPMENT_TYPE = "PTR23 Projector";
 
@@ -609,6 +612,12 @@ describe("warning before a significant change (PTR-23)", () => {
       "proposedDates",
       "expectedAttendance",
     ]);
+    // The reason repeats on each row of the save, including the ordinary field (PTR-164 AC2).
+    expect((await changeLog(event.id)).map(row => row.reason)).toEqual([
+      SIGNIFICANT_REASON,
+      SIGNIFICANT_REASON,
+      SIGNIFICANT_REASON,
+    ]);
 
     const notices = await significantChangeNotices(event.id);
     const [first] = await database
@@ -629,7 +638,6 @@ describe("warning before a significant change (PTR-23)", () => {
           endsAt: first.endsAt,
           changedFields: ["proposedDates", "expectedAttendance"],
           actorName: coordinator.name,
-          reason: SIGNIFICANT_REASON,
         },
       },
       {
@@ -644,7 +652,6 @@ describe("warning before a significant change (PTR-23)", () => {
           eventName: "PTR23 Renamed",
           changedFields: ["proposedDates", "expectedAttendance"],
           actorName: coordinator.name,
-          reason: SIGNIFICANT_REASON,
         },
       },
       {
@@ -658,6 +665,11 @@ describe("warning before a significant change (PTR-23)", () => {
         },
       },
     ]);
+    // The staff copies carry no free-text reason, so it cannot identify the event (PTR-164 AC5).
+    for (const notice of notices) {
+      if (notice.recipientId === organiser.id) continue;
+      expect(notice.payload).not.toHaveProperty("reason");
+    }
     // The Venue Staff message never names the event (PTR-8).
     for (const name of [recorded.eventName, "PTR23 Renamed"]) {
       expect(JSON.stringify(notices[0].payload)).not.toContain(name);
@@ -787,5 +799,24 @@ describe("warning before a significant change (PTR-23)", () => {
         reason: "The new date is fixed.",
       },
     });
+    // The Organiser's record feeds the same reason to the change history (PTR-164 AC3).
+    const detail = await handleGetEventRequest({ id: event.id }, organiser, database as never);
+    expect(detail?.informationChanges).toMatchObject([
+      { field: "expectedAttendance", reason: "The new date is fixed." },
+    ]);
+    // The Coordinator's read carries the same change row (PTR-164 AC3).
+    const coordination = await handleGetCoordinationRequest(
+      { id: event.id },
+      coordinator,
+      database as never
+    );
+    expect(coordination.informationChanges).toEqual(detail?.informationChanges);
+    // The Lead's unassigned-queue read carries no free-text reason (PTR-164 AC1, AC3).
+    await database
+      .update(schema.eventRequests)
+      .set({ assignedCoordinatorId: null })
+      .where(eq(schema.eventRequests.id, event.id));
+    const leadView = await handleGetCoordinationRequest({ id: event.id }, lead, database as never);
+    expect(leadView.informationChanges).toEqual([]);
   });
 });

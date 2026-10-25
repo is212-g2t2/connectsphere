@@ -54,9 +54,10 @@ export interface EventInformationUpdated {
  * open in every status where a request can be raised. It must change something. Mark the request
  * applied and tell the Organiser in the same transaction (AC2, AC5). Move nothing else (AC4).
  *
- * PTR-164 AC2, AC3: a significant save needs a reason, stored on the change log and carried on the
- * notices. The Organiser receives a significant-change notice too; when the save applies their own
- * request, the reason goes on the processed notice instead, so they get one notice.
+ * PTR-164 AC2, AC3: a significant save needs a reason, stored on the change log and carried on
+ * the Organiser's notices. The Organiser receives a significant-change notice too; when the save
+ * applies their own request, the reason goes on the processed notice instead, so they get one
+ * notice. Arrangement holders keep their anonymous wording without the reason (AC5).
  */
 export async function handleUpdateEventInformation(
   data: unknown,
@@ -158,8 +159,7 @@ export async function handleUpdateEventInformation(
             { id: request.id, eventName: values.eventName },
             significant,
             // Send a role word, not the address. The notice goes to staff outside the event's team.
-            actorName || "The Coordinator",
-            reason
+            actorName || "The Coordinator"
           )
         : [];
     const eventName = values.eventName.trim() || "Untitled request";
@@ -316,13 +316,13 @@ export async function handleDeclineEventChangeRequest(
  * Staff on each approved booking and each Technical Support member with a reservation. The Venue
  * Staff copy names the booking, never the event (PTR-8). A tentative hold belongs to the
  * Coordinator and names no one. Commit the rows with the update. The worker sends the emails.
+ * PTR-164 AC5: neither copy carries the free-text reason, so it cannot identify the event.
  */
 async function significantChangeNotices(
   tx: Tx,
   event: { id: number; eventName: string },
   changedFields: SignificantField[],
-  actorName: string,
-  reason: string
+  actorName: string
 ): Promise<NewNotification[]> {
   const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, event.id);
 
@@ -339,7 +339,6 @@ async function significantChangeNotices(
         endsAt,
         changedFields,
         actorName,
-        reason,
       },
     });
   }
@@ -353,7 +352,6 @@ async function significantChangeNotices(
         eventName: event.eventName.trim() || "Untitled event",
         changedFields,
         actorName,
-        reason,
       },
     });
   }

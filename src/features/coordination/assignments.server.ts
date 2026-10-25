@@ -17,6 +17,7 @@ import {
   changeRequestsWaitingSql,
   listEventChangeRequests,
 } from "#/features/event-requests/change-requests.server";
+import { listEventInformationChanges } from "#/features/event-requests/information-changes.server";
 import { loadOutstandingReleases } from "#/features/events/arrangements.server";
 import { hasBlockedArrangementSql } from "#/features/venues/blocked-arrangements.server";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
@@ -186,15 +187,24 @@ export async function handleGetCoordinationRequest(
           request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
           // The triage venue section reads the event's live venue requests from here.
           loadVenueRequestsForEvent(database, id),
+          // PTR-164 AC3: the change log with its significant-change reasons.
+          listEventInformationChanges(id, database),
         ]);
 
+  // PTR-164 AC1/AC3: the free-text reasons name only the Organiser and the assigned
+  // Coordinator. The Lead's queue read keeps the waiting requests but not the decided reasons or
+  // the change log, so an event back in the unassigned queue shows no reason.
+  const coordinatorRead = !readsQueue;
   return {
     ...request,
     clarifications: reviewFlow?.[0] ?? [],
     changeRequests: reviewFlow?.[1] ?? [],
-    cancellationRequests: reviewFlow?.[2] ?? [],
+    cancellationRequests: coordinatorRead
+      ? (reviewFlow?.[2] ?? [])
+      : (reviewFlow?.[2] ?? []).filter(item => item.outcome === null),
     outstandingReleases: reviewFlow?.[3] ?? null,
     venueRequests: reviewFlow?.[4] ?? [],
+    informationChanges: coordinatorRead ? (reviewFlow?.[5] ?? []) : [],
   };
 }
 

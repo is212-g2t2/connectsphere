@@ -720,6 +720,8 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       // Venue Staff do not see the event name (PTR-8), so name the booking in their notice.
       expect(venueNotice.payload).toMatchObject({ audience: "venue_staff", venueName: VENUE_NAME });
       expect(venueNotice.payload).not.toHaveProperty("eventName");
+      // PTR-164 AC5: the staff copies carry no free-text reason.
+      expect(venueNotice.payload).not.toHaveProperty("reason");
       expect(notificationSummary(parsed(venueNotice))).toBe(
         `Event cancelled: release the booking at ${VENUE_NAME}`
       );
@@ -728,7 +730,6 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       expect(techNotice.payload).toEqual({
         audience: "technical_support",
         eventName: event.eventName,
-        reason: CANCELLATION_REASON,
       });
       expect(notificationHref(parsed(techNotice))).toBe(`/events/${event.id}`);
       expect(renderNotificationEmail(parsed(techNotice)).subject).toBe(
@@ -801,7 +802,11 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
 
       const detail = await handleGetEventRequest({ id: event.id }, organiser, database as never);
       expect(detail?.cancellationRequests).toEqual([
-        expect.objectContaining({ outcome: "cancelled", processedByName: coordinator.name }),
+        expect.objectContaining({
+          outcome: "cancelled",
+          cancelReason: CANCELLATION_REASON,
+          processedByName: coordinator.name,
+        }),
       ]);
     });
 
@@ -960,7 +965,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
         expect((await eventRow(event.id)).status).toBe("confirmed");
       });
 
-      test("stores the reason and carries it on every notice", async () => {
+      test("stores the reason, shows it to the Organiser, and keeps it off the other notices", async () => {
         const event = await createEvent("confirmed");
         await addBooking(event.id);
         await database.insert(schema.eventRegistrations).values({
@@ -979,9 +984,49 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
         const notices = await notificationsFor(event.id, "event_cancelled");
         expect(notices.length).toBe(3);
         for (const notice of notices) {
-          expect(notice.payload).toMatchObject({ reason: "The venue closed for repairs." });
           expect(parsed(notice)).toBeTruthy();
         }
+        // The Organiser's and each Attendee's copy carries the reason (PTR-164 AC1); the staff
+        // copies carry none (AC5).
+        const organiserNotice = notices.find(notice => notice.recipientId === organiser.id);
+        expect(organiserNotice?.payload).toMatchObject({ reason: "The venue closed for repairs." });
+        const attendeeNotice = notices.find(notice => notice.recipientId === attendee.id);
+        expect(attendeeNotice?.payload).toMatchObject({ reason: "The venue closed for repairs." });
+        for (const notice of notices) {
+          if (notice.recipientId === organiser.id || notice.recipientId === attendee.id) continue;
+          expect(notice.payload).not.toHaveProperty("reason");
+        }
+      });
+
+      test("keeps the decided reason off the Lead's unassigned-queue read (PTR-164 AC1, AC3)", async () => {
+        const event = await createEvent("confirmed");
+        await requestCancellation(event.id);
+        await cancel(event.id);
+        // The Organiser's record feeds the decided reason to the cancellation history (PTR-164 AC1).
+        const detail = await handleGetEventRequest({ id: event.id }, organiser, database as never);
+        expect(detail?.cancellationRequests).toMatchObject([
+          { outcome: "cancelled", cancelReason: CANCELLATION_REASON },
+        ]);
+        // The Coordinator's read carries the same decided row (PTR-164 AC1).
+        const coordination = await handleGetCoordinationRequest(
+          { id: event.id },
+          coordinator,
+          database as never
+        );
+        expect(coordination.cancellationRequests).toEqual(detail?.cancellationRequests);
+        // The assignment is cleared, so the cancelled event waits in the queue again.
+        await database
+          .update(schema.eventRequests)
+          .set({ assignedCoordinatorId: null })
+          .where(eq(schema.eventRequests.id, event.id));
+
+        const leadView = await handleGetCoordinationRequest(
+          { id: event.id },
+          lead,
+          database as never
+        );
+        expect(leadView.cancellationRequests).toEqual([]);
+        expect(leadView.informationChanges).toEqual([]);
       });
     });
   });

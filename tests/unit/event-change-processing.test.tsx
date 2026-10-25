@@ -132,6 +132,7 @@ const request: CoordinationRequest = {
   clarifications: [],
   changeRequests: [waiting],
   cancellationRequests: [],
+  informationChanges: [],
   outstandingReleases: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,

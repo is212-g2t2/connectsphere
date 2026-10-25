@@ -77,6 +77,7 @@ const approved: CoordinationRequest = {
   clarifications: [],
   changeRequests: [],
   cancellationRequests: [],
+  informationChanges: [],
   outstandingReleases: null,
   venueRequests: [],
   equipmentSubmittedAt: null,
