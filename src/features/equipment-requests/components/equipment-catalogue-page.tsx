@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Page, PageHeader } from "#/components/layout/page";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
-import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
 import { IconAction } from "#/components/ui/icon-action";
 import { Input } from "#/components/ui/input";
 import {
@@ -280,7 +280,8 @@ function UnavailabilityForm({ typeId, onDone }: { typeId: number; onDone: () => 
             quantityUnavailable: parseWholeNumber(value.quantityUnavailable),
           },
         });
-        toast.success("Out-of-service quantity saved.");
+        const cleared = parseWholeNumber(value.quantityUnavailable) === 0;
+        toast.success(cleared ? "Out-of-service entry cleared." : "Out-of-service quantity saved.");
         form.reset();
         onDone();
       } catch (error) {
@@ -329,13 +330,14 @@ function UnavailabilityForm({ typeId, onDone }: { typeId: number; onDone: () => 
               <Input
                 id={`out-of-service-qty-${typeId}`}
                 type="number"
-                min={1}
+                min={0}
                 step={1}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={e => field.handleChange(e.target.value)}
                 aria-invalid={field.state.meta.errors.length > 0}
               />
+              <FieldDescription>Enter 0 to clear this reason.</FieldDescription>
               <FieldError errors={field.state.meta.errors} />
             </Field>
           )}

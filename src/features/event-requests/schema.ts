@@ -28,7 +28,7 @@ export const REGISTRATION_CLOSES_REQUIRED_MESSAGE =
   "A registration closing date and time is required when registration is enabled";
 export const REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE = "Registration must close after it opens";
 /** Postgres `integer` is int4: anything larger fails at the driver, so the schema stops it first. */
-const MAX_INTEGER = 2_147_483_647;
+export const MAX_INTEGER = 2_147_483_647;
 
 export const ATTENDANCE_MAX = MAX_INTEGER;
 export const ATTENDANCE_MAX_MESSAGE = `Expected attendance must be ${ATTENDANCE_MAX} or fewer`;

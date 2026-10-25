@@ -297,7 +297,12 @@ function ArrangementLine({
   bookings: EquipmentBookingOption[];
   equipmentTypes?: EquipmentTypeOption[] | null;
 }) {
-  const canReserve = line.arrangeable !== false && line.arrangementStatus === "requested";
+  // PTR-162 AC5: reserve the mapped catalogue type only. An unmapped line offers no
+  // Reserve action; map it to a type first.
+  const canReserve =
+    line.arrangeable !== false &&
+    line.arrangementStatus === "requested" &&
+    (line.equipmentTypeId ?? null) !== null;
   // PTR-42: only units already held can be given back.
   const canRelease = canGiveBackUnits(line);
   return (

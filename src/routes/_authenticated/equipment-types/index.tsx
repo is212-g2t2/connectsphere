@@ -8,7 +8,7 @@ import { createSeoHead } from "#/lib/seo";
 export const Route = createFileRoute("/_authenticated/equipment-types/")({
   head: () => createSeoHead({ title: "Equipment catalogue — ConnectSphere", noindex: true }),
   beforeLoad: ({ context }) => {
-    if (!can(context.user.role, { equipment_request: ["arrange"] })) {
+    if (!can(context.user.role, { equipment_type: ["manage"] })) {
       throw redirect({ to: "/dashboard" });
     }
   },
