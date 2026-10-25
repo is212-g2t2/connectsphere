@@ -16,7 +16,10 @@ import { handleReserveEquipment } from "#/features/equipment-requests/reservatio
 import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
 import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
 import { EVENT_HAS_NOT_ENDED_MESSAGE } from "#/features/events/completion";
-import { handleCompleteEvent } from "#/features/events/complete.server";
+import {
+  handleCompleteEvent,
+  handleUpdateEventAttendance,
+} from "#/features/events/complete.server";
 import { handleListEvents } from "#/features/events/records.server";
 import { handleApproveVenueRequest } from "#/features/venue-requests/requests.server";
 
@@ -122,6 +125,24 @@ describe("completing an event (PTR-25)", () => {
 
   const complete = (eventId: number, as: SessionUser = coordinator) =>
     handleCompleteEvent({ id: eventId }, as, database as never);
+
+  async function createCompletedEvent(attendance?: number) {
+    const event = await createConfirmedEvent();
+    await handleCompleteEvent(
+      attendance === undefined ? { id: event.id } : { id: event.id, actualAttendance: attendance },
+      coordinator,
+      database as never
+    );
+    return event;
+  }
+
+  async function savedAttendance(eventId: number) {
+    const [saved] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, eventId));
+    return saved;
+  }
 
   test("marks an ended confirmed event completed and records actor and time", async () => {
     const event = await createConfirmedEvent();
@@ -471,6 +492,114 @@ describe("completing an event (PTR-25)", () => {
         .where(eq(schema.eventRequests.id, event.id))
     ).rejects.toMatchObject({
       cause: { code: "23514", constraint: "event_requests_actual_attendance_nonnegative" },
+    });
+  });
+
+  describe("correcting actual attendance on a completed event (PTR-157 AC3)", () => {
+    test("sets the turnout after completion and keeps the event completed", async () => {
+      const event = await createCompletedEvent();
+
+      const updated = await handleUpdateEventAttendance(
+        { id: event.id, actualAttendance: 55 },
+        coordinator,
+        database as never
+      );
+
+      expect(updated.status).toBe("completed");
+      expect(updated.actualAttendance).toBe(55);
+      const saved = await savedAttendance(event.id);
+      expect(saved.status).toBe("completed");
+      expect(saved.actualAttendance).toBe(55);
+      expect(saved.completedById).toBe(coordinator.id);
+    });
+
+    test("corrects a recorded turnout, including back to zero", async () => {
+      const event = await createCompletedEvent(42);
+
+      await handleUpdateEventAttendance(
+        { id: event.id, actualAttendance: 87 },
+        coordinator,
+        database as never
+      );
+      expect((await savedAttendance(event.id)).actualAttendance).toBe(87);
+
+      await handleUpdateEventAttendance(
+        { id: event.id, actualAttendance: 0 },
+        coordinator,
+        database as never
+      );
+      const saved = await savedAttendance(event.id);
+      expect(saved.actualAttendance).toBe(0);
+      expect(saved.status).toBe("completed");
+    });
+
+    test("clears the turnout when the count is omitted", async () => {
+      const event = await createCompletedEvent(42);
+
+      await handleUpdateEventAttendance({ id: event.id }, coordinator, database as never);
+
+      const saved = await savedAttendance(event.id);
+      expect(saved.actualAttendance).toBeNull();
+      expect(saved.status).toBe("completed");
+    });
+
+    test("refuses another Coordinator without revealing the event", async () => {
+      const event = await createCompletedEvent();
+
+      await expect(
+        handleUpdateEventAttendance(
+          { id: event.id, actualAttendance: 10 },
+          stranger,
+          database as never
+        )
+      ).rejects.toBeInstanceOf(AuthorizationError);
+      expect((await savedAttendance(event.id)).actualAttendance).toBeNull();
+    });
+
+    test("refuses a missing event without revealing it and writes nothing", async () => {
+      const event = await createCompletedEvent(42);
+
+      await expect(
+        handleUpdateEventAttendance(
+          { id: 2_000_000_000, actualAttendance: 10 },
+          coordinator,
+          database as never
+        )
+      ).rejects.toBeInstanceOf(AuthorizationError);
+
+      const saved = await savedAttendance(event.id);
+      expect(saved.status).toBe("completed");
+      expect(saved.actualAttendance).toBe(42);
+    });
+
+    test("refuses an event that is not completed", async () => {
+      const event = await createConfirmedEvent();
+
+      await expect(
+        handleUpdateEventAttendance(
+          { id: event.id, actualAttendance: 10 },
+          coordinator,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+      const saved = await savedAttendance(event.id);
+      expect(saved.status).toBe("confirmed");
+      expect(saved.actualAttendance).toBeNull();
+    });
+
+    test("refuses a negative turnout before any write", async () => {
+      const event = await createCompletedEvent(42);
+
+      await expect(
+        handleUpdateEventAttendance(
+          { id: event.id, actualAttendance: -1 },
+          coordinator,
+          database as never
+        )
+      ).rejects.toThrow("Actual attendance must be a whole number of zero or more");
+      const saved = await savedAttendance(event.id);
+      expect(saved.actualAttendance).toBe(42);
+      expect(saved.status).toBe("completed");
     });
   });
 });

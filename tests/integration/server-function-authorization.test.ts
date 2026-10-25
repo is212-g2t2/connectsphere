@@ -65,6 +65,7 @@ import {
   registerForEvent,
   removeVipRegistration,
   searchVipAttendees,
+  updateEventAttendance,
   updateEventInformation,
   withdrawFromEvent,
 } from "#/features/events/server-fns";
@@ -881,6 +882,47 @@ describe("server-function authorization (PTR-69)", () => {
       signIn(role);
 
       expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
+    });
+  });
+
+  describe("PTR-157 AC3 update event attendance", () => {
+    const attendanceInput = { id: 1, actualAttendance: 42 };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(updateEventAttendance, attendanceInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(updateEventAttendance, attendanceInput)).error).toBeUndefined();
+    });
+
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
+
+      expect(await refusalFrom(updateEventAttendance, attendanceInput)).toMatchObject({
+        status: 403,
+      });
+    });
+
+    it("refuses a negative turnout before the handler", async () => {
+      signIn("event_coordinator");
+
+      expect(await messageFrom(updateEventAttendance, { id: 1, actualAttendance: -1 })).toBe(
+        "Actual attendance must be a whole number of zero or more"
+      );
     });
   });
 
