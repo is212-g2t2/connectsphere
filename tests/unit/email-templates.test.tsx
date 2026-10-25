@@ -36,6 +36,7 @@ import {
 } from "#/features/emails/components/venue-hold-request-email";
 import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
+import { EVENT_COMPLETED_CLOSEOUT_REASON } from "#/features/events/completion";
 import { EventSafetyReconfirmationEmail } from "#/features/emails/components/event-safety-reconfirmation-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
@@ -664,6 +665,22 @@ describe("Email templates rendering", () => {
     expect(declinedHtml).not.toContain("now shows the new information");
   });
 
+  it("names the close-out on the declined change request without saying the event goes ahead (PTR-156 AC3)", async () => {
+    const html = await render(
+      <EventChangeProcessedEmail
+        outcome="declined"
+        eventName="Community workshop"
+        whatShouldChange="Expected attendance"
+        reason={EVENT_COMPLETED_CLOSEOUT_REASON}
+        eventRequestUrl="http://localhost:3000/events/42"
+      />
+    );
+
+    expect(html).toContain("Change request declined");
+    expect(html).toContain(EVENT_COMPLETED_CLOSEOUT_REASON);
+    expect(html).not.toContain("goes ahead");
+  });
+
   it("renders the significant change to each holder, naming the booking to Venue Staff and the event to Technical Support (PTR-23 AC5)", async () => {
     const venueHtml = await render(
       <EventSignificantChangeEmail
@@ -713,7 +730,58 @@ describe("Email templates rendering", () => {
 
     expect(html).toContain("Community workshop");
     expect(html).toContain("The deposit is non-refundable.");
+    expect(html).toContain("Cancellation request declined");
+    expect(html).toContain("was declined");
+    expect(html).toContain("The event goes ahead.");
     expect(html).toContain("http://localhost:3000/events/42");
+  });
+
+  it("names the close-out instead of saying the event goes ahead at completion (PTR-156 AC3)", async () => {
+    const html = await render(
+      <EventCancellationDeclinedEmail
+        eventName="Community workshop"
+        reason={EVENT_COMPLETED_CLOSEOUT_REASON}
+        eventUrl="http://localhost:3000/events/42"
+        closeOut
+        eventStatus="completed"
+      />
+    );
+
+    expect(html).toContain("Community workshop");
+    expect(html).toContain(EVENT_COMPLETED_CLOSEOUT_REASON);
+    expect(html).toContain("Cancellation request closed");
+    expect(html).toContain("was closed");
+    expect(html).toContain("already taken place");
+    expect(html).not.toContain("declined");
+    expect(html).not.toContain("goes ahead");
+  });
+
+  it("says the event goes ahead when a manual decline reuses the close-out reason (PTR-156)", async () => {
+    const html = await render(
+      <EventCancellationDeclinedEmail
+        eventName="Community workshop"
+        reason={EVENT_COMPLETED_CLOSEOUT_REASON}
+        eventUrl="http://localhost:3000/events/42"
+        eventStatus="confirmed"
+      />
+    );
+
+    expect(html).toContain("The event goes ahead.");
+    expect(html).not.toContain("already taken place");
+  });
+
+  it("says the event stays rejected when a decline closes a rejected event (PTR-156)", async () => {
+    const html = await render(
+      <EventCancellationDeclinedEmail
+        eventName="Community workshop"
+        reason="The request no longer applies."
+        eventUrl="http://localhost:3000/events/42"
+        eventStatus="rejected"
+      />
+    );
+
+    expect(html).toContain("The event stays rejected.");
+    expect(html).not.toContain("goes ahead");
   });
 
   it("renders the hold expiry email with the stored warning, or without one (PTR-142)", async () => {

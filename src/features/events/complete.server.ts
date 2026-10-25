@@ -8,6 +8,7 @@ import { parseEventRequestId } from "#/features/event-requests/schema";
 import {
   COMPLETION_REFUSAL_HEADING,
   EVENT_COMPLETED_CLOSEOUT_REASON,
+  closeOutProcessorName,
   completionRefusalForEvent,
 } from "#/features/events/completion";
 import { raiseNotifications } from "#/features/notifications/raise.server";
@@ -54,7 +55,7 @@ export async function handleCompleteEvent(data: unknown, actor: SessionUser, dat
 
     // Nothing can still wait on a completed event. Decline what waits so the queue holds only
     // requests the Coordinator can still act on.
-    const processorName = actor.name?.trim() || actor.email;
+    const processorName = closeOutProcessorName(actor);
     const staleChanges = await tx
       .update(eventChangeRequests)
       .set({
@@ -102,7 +103,12 @@ export async function handleCompleteEvent(data: unknown, actor: SessionUser, dat
         recipientId: request.organiserId,
         eventRequestId: request.id,
         kind: "event_cancellation_declined" as const,
-        payload: { eventName: name, reason: EVENT_COMPLETED_CLOSEOUT_REASON },
+        payload: {
+          eventName: name,
+          reason: EVENT_COMPLETED_CLOSEOUT_REASON,
+          closeOut: true,
+          eventStatus: "completed" as const,
+        },
       })),
     ]);
 

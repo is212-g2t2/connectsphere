@@ -290,6 +290,19 @@ describe("notification summaries (PTR-55 AC2)", () => {
     expect(notificationSummary(parsed)).toBe("Your event request for Gala was approved");
   });
 
+  it("closes a cancellation close-out apart from a manual decline (PTR-156)", () => {
+    const manual = parse("event_cancellation_declined", validPayloads.event_cancellation_declined);
+    expect(notificationSummary(manual)).toBe("Cancellation request declined: Gala");
+
+    const closeOut = parse("event_cancellation_declined", {
+      eventName: "Gala",
+      reason: "Event completed",
+      closeOut: true,
+      eventStatus: "completed",
+    });
+    expect(notificationSummary(closeOut)).toBe("Cancellation request closed: Gala");
+  });
+
   it("names the event for the equipment lines", () => {
     const parsed = parse("equipment_arrangements_completed", { eventName: "Gala", lineCount: 3 });
     expect(notificationSummary(parsed)).toBe("Equipment arrangements complete for Gala");
