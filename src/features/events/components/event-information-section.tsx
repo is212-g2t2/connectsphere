@@ -1,12 +1,27 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { toast } from "sonner";
 
+import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
+import { Input } from "#/components/ui/input";
 import { CoordinatorInformationForm } from "#/features/coordination/components/change-request-decisions";
 import { Detail } from "#/features/event-requests/components/request-message-blocks";
-import { canUpdateEventInformation } from "#/features/event-requests/schema";
+import {
+  ACTUAL_ATTENDANCE_MAX_MESSAGE,
+  ACTUAL_ATTENDANCE_MESSAGE,
+  ATTENDANCE_MAX,
+  canUpdateEventInformation,
+  parseWholeNumber,
+} from "#/features/event-requests/schema";
 import type { EventProjection } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
+import { updateEventAttendance } from "#/features/events/server-fns";
+import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 import {
   formatInstant,
   formatLocalDate,
@@ -42,6 +57,9 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
             <Detail term="Expected attendance">{request.expectedAttendance ?? NONE}</Detail>
+            {request.status === "completed" && (
+              <Detail term="Actual attendance">{request.actualAttendance ?? "Not recorded"}</Detail>
+            )}
 
             <Detail term="Purpose" wide>
               {request.purpose || NONE}
@@ -192,6 +210,113 @@ function LeadInformation({ event }: { event: EventProjection["event"] }) {
 }
 
 /**
+ * PTR-157 AC3: the assigned Coordinator sets or corrects the turnout on a completed event.
+ * A blank field clears the count to "Not recorded"; the save sends the field omitted, and the
+ * server clears it to null. The text input keeps invalid text visible, so it blocks the save
+ * instead of clearing the count as a number input would.
+ */
+export function UpdateAttendanceForm({
+  eventId,
+  initial,
+}: {
+  eventId: number;
+  initial: number | null;
+}) {
+  const router = useRouter();
+  const [attendance, setAttendance] = useState(initial === null ? "" : String(initial));
+  const trimmed = attendance.trim();
+  const parsed = trimmed === "" ? null : parseWholeNumber(trimmed);
+  const overLimit = parsed !== null && !Number.isNaN(parsed) && parsed > ATTENDANCE_MAX;
+  const invalid = parsed !== null && (Number.isNaN(parsed) || overLimit);
+  const clearing = parsed === null;
+  const [result, save, saving] = useMutation(async () => {
+    // A blank field sends the count omitted, and the server clears it to null.
+    await updateEventAttendance({
+      data: { id: eventId, ...(parsed === null ? {} : { actualAttendance: parsed }) },
+    });
+    let reloadFailed = false;
+    try {
+      await router.invalidate({ filter: skipRootFilter });
+    } catch {
+      // The save committed; only the re-read failed.
+      reloadFailed = true;
+      toast.warning(
+        clearing
+          ? "Attendance cleared. Refresh this page to see it."
+          : "Attendance saved. Refresh this page to see it."
+      );
+    }
+    if (!reloadFailed) {
+      toast.success(clearing ? "Attendance cleared." : "Actual attendance saved.");
+    }
+  }, "Could not save actual attendance. Try again.");
+
+  return (
+    <form
+      noValidate
+      className="mt-4 max-w-xs space-y-3"
+      onSubmit={event => {
+        event.preventDefault();
+        if (saving || invalid) return;
+        void save();
+      }}
+    >
+      <Field data-invalid={invalid}>
+        <FieldLabel htmlFor={`actual-attendance-${eventId}`}>Actual attendance</FieldLabel>
+        <Input
+          id={`actual-attendance-${eventId}`}
+          type="text"
+          inputMode="numeric"
+          placeholder="e.g. 42"
+          value={attendance}
+          aria-invalid={invalid}
+          onChange={event => setAttendance(event.target.value)}
+        />
+        <FieldDescription>
+          Leave blank to clear the recorded turnout; it then shows as &ldquo;Not recorded&rdquo;.
+        </FieldDescription>
+        <FieldError
+          errors={
+            invalid
+              ? [{ message: overLimit ? ACTUAL_ATTENDANCE_MAX_MESSAGE : ACTUAL_ATTENDANCE_MESSAGE }]
+              : []
+          }
+        />
+      </Field>
+      <Button type="submit" size="sm" disabled={saving || invalid}>
+        {saving ? "Saving…" : "Save attendance"}
+      </Button>
+      {result.status === "error" && (
+        <p role="alert" className="body-sm text-destructive">
+          {result.error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/**
+ * PTR-157: the Coordinator's turnout record for a completed event. The update form
+ * closes with the event, so expected and actual attendance show here with a correction form.
+ */
+function CoordinatorCompletedRecord({ event }: { event: EventProjection["event"] }) {
+  return (
+    <div>
+      <h2 className="display-h3">Event record</h2>
+      <Card className="mt-4">
+        <CardContent>
+          <dl className="grid gap-6 sm:grid-cols-2">
+            <Detail term="Expected attendance">{event.expectedAttendance ?? NONE}</Detail>
+            <Detail term="Actual attendance">{event.actualAttendance ?? "Not recorded"}</Detail>
+          </dl>
+          <UpdateAttendanceForm eventId={event.id} initial={event.actualAttendance ?? null} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/**
  * Show the event's recorded information to every staff role that reads it. The Coordinator can
  * update it while the event is approved, planning, or confirmed; in those statuses the form also
  * applies a waiting change request (PTR-52). In other statuses the change requests section holds
@@ -207,16 +332,25 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
     return [];
   }
   const { access } = data.event;
+  const coordinatorCompleted = access === "coordinator" && data.event.event.status === "completed";
   return [
     {
       id: "details",
-      label: access === "coordinator" ? "Update event information" : "Event information",
+      label:
+        access === "coordinator"
+          ? coordinatorCompleted
+            ? "Event record"
+            : "Update event information"
+          : "Event information",
       visible: inner => {
         if (inner.kind !== "event") return false;
         if (inner.event.access === "organiser") {
           return inner.organiserRequest !== null && inner.organiserRequest !== undefined;
         }
         if (inner.event.access === "coordinator") {
+          // The completed record reads the projection alone, so a failed coordination read
+          // must not hide it. The update form still needs the request.
+          if (inner.event.event.status === "completed") return inner.coordination !== undefined;
           return (
             canUpdateEventInformation(inner.event.event.status) &&
             inner.coordination?.request !== undefined
@@ -231,11 +365,17 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
           return <LeadInformation event={body.event.event} />;
         }
         if (body.event.access === "coordinator") {
-          const request = body.coordination?.request;
-          // The form owns its own disclosure and heading; do not nest a second one.
-          return request ? (
-            <CoordinatorInformationForm request={request} layouts={body.layouts} />
-          ) : null;
+          if (canUpdateEventInformation(body.event.event.status)) {
+            const request = body.coordination?.request;
+            // The form owns its own disclosure and heading; do not nest a second one.
+            return request ? (
+              <CoordinatorInformationForm request={request} layouts={body.layouts} />
+            ) : null;
+          }
+          if (body.event.event.status === "completed") {
+            return <CoordinatorCompletedRecord event={body.event.event} />;
+          }
+          return null;
         }
         const request = body.organiserRequest;
         return request ? <OrganiserInformation request={request} /> : null;

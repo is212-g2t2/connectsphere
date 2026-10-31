@@ -1,21 +1,31 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChangeRequestApplyProvider } from "#/features/coordination/components/change-request-decisions";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import type { EventProjection } from "#/features/events/access";
 import { eventInformationSections } from "#/features/events/components/event-information-section";
+import {
+  ACTUAL_ATTENDANCE_MAX_MESSAGE,
+  ACTUAL_ATTENDANCE_MESSAGE,
+} from "#/features/event-requests/schema";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import type { EventPageData } from "#/features/events/page-data";
 
-const { updateEventInformation, invalidate, success } = vi.hoisted(() => ({
-  updateEventInformation: vi.fn<() => Promise<{ changedFields: readonly string[] }>>(),
-  invalidate: vi.fn<() => Promise<void>>(),
-  success: vi.fn<(message: string) => void>(),
-}));
+const { updateEventAttendance, updateEventInformation, invalidate, success, warning } = vi.hoisted(
+  () => ({
+    updateEventAttendance:
+      vi.fn<(input: { data: { id: number; actualAttendance?: number } }) => Promise<unknown>>(),
+    updateEventInformation: vi.fn<() => Promise<{ changedFields: readonly string[] }>>(),
+    invalidate: vi.fn<() => Promise<void>>(),
+    success: vi.fn<(message: string) => void>(),
+    warning: vi.fn<(message: string) => void>(),
+  })
+);
 
-vi.mock("#/features/events/server-fns", () => ({ updateEventInformation }));
+vi.mock("#/features/events/server-fns", () => ({ updateEventAttendance, updateEventInformation }));
 vi.mock("#/features/coordination/server-fns", () => ({}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -24,7 +34,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn<() => void>(),
   useRouter: () => ({ navigate: vi.fn<() => void>(), invalidate }),
 }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, warning } }));
 
 const request = {
   id: 1042,
@@ -85,6 +95,35 @@ function coordinatorPage(): EventPageData {
       startTime: "10:00",
       endTime: "16:00",
       status: "confirmed",
+    },
+  };
+  return {
+    kind: "event",
+    event,
+    coordination: { request: coordinationRequest, coordinators: [] },
+  };
+}
+
+function completedOrganiserPage(actualAttendance: number | null): EventPageData {
+  const data = organiserPage();
+  if (data.kind !== "event") throw new Error("fixture must be an event page");
+  return {
+    ...data,
+    organiserRequest: { ...request, status: "completed", actualAttendance },
+  };
+}
+
+function completedCoordinatorPage(actualAttendance: number | null): EventPageData {
+  const event: EventProjection = {
+    access: "coordinator",
+    event: {
+      id: 1042,
+      eventDate: "2026-11-04",
+      startTime: "10:00",
+      endTime: "16:00",
+      status: "completed",
+      expectedAttendance: 60,
+      actualAttendance,
     },
   };
   return {
@@ -209,5 +248,199 @@ describe("event information section", () => {
     expect(coordinatorDefs).toHaveLength(1);
     expect(coordinatorDefs[0].visible(withoutCoordination)).toBe(false);
     expect(coordinatorDefs[0].render(withoutCoordination)).toBeNull();
+  });
+
+  describe("actual attendance on a completed event (PTR-157 AC2)", () => {
+    it("shows the organiser the recorded turnout beside the expected count", () => {
+      const data = completedOrganiserPage(87);
+      const defs = eventInformationSections(data);
+      expect(defs).toHaveLength(1);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText("Expected attendance")).toBeTruthy();
+      expect(screen.getByText("Actual attendance")).toBeTruthy();
+      expect(screen.getByText("87")).toBeTruthy();
+    });
+
+    it("tells the organiser when no turnout was recorded", () => {
+      const data = completedOrganiserPage(null);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText("Actual attendance")).toBeTruthy();
+      expect(screen.getByText("Not recorded")).toBeTruthy();
+    });
+
+    it("shows the organiser no turnout before completion", () => {
+      const data = organiserPage();
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.queryByText("Actual attendance")).toBeNull();
+    });
+
+    it("shows the coordinator the turnout record for a completed event", () => {
+      const data = completedCoordinatorPage(87);
+      const defs = eventInformationSections(data);
+      expect(defs).toHaveLength(1);
+      expect(defs[0].label).toBe("Event record");
+      expect(defs[0].visible(data)).toBe(true);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByRole("heading", { name: "Event record" })).toBeTruthy();
+      expect(screen.getByText("60")).toBeTruthy();
+      expect(screen.getByText("87")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Edit event information" })).toBeNull();
+    });
+
+    it("tells the coordinator when no turnout was recorded", () => {
+      const data = completedCoordinatorPage(null);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText("Not recorded")).toBeTruthy();
+    });
+
+    it("shows the completed record when the coordination read fails", () => {
+      const base = completedCoordinatorPage(87);
+      if (base.kind !== "event") throw new Error("fixture must be an event page");
+      const data: EventPageData = { ...base, coordination: null };
+      const defs = eventInformationSections(data);
+      expect(defs).toHaveLength(1);
+      expect(defs[0].label).toBe("Event record");
+      expect(defs[0].visible(data)).toBe(true);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByRole("heading", { name: "Event record" })).toBeTruthy();
+      expect(screen.getByLabelText("Actual attendance")).toBeTruthy();
+    });
+  });
+
+  describe("correcting actual attendance on a completed event (PTR-157 AC3)", () => {
+    beforeEach(() => {
+      vi.resetAllMocks();
+      invalidate.mockResolvedValue();
+    });
+
+    it("offers the correction form prefilled with the recorded turnout", () => {
+      const data = completedCoordinatorPage(87);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByLabelText<HTMLInputElement>("Actual attendance").value).toBe("87");
+      expect(screen.getByRole("button", { name: "Save attendance" })).toBeTruthy();
+    });
+
+    it("saves a corrected turnout and reloads", async () => {
+      updateEventAttendance.mockResolvedValue({});
+      const user = userEvent.setup();
+      const data = completedCoordinatorPage(42);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      const input = screen.getByLabelText("Actual attendance");
+      await user.clear(input);
+      await user.type(input, "87");
+      await user.click(screen.getByRole("button", { name: "Save attendance" }));
+
+      await waitFor(() =>
+        expect(updateEventAttendance).toHaveBeenCalledWith({
+          data: { id: 1042, actualAttendance: 87 },
+        })
+      );
+      await waitFor(() => expect(success).toHaveBeenCalledWith("Actual attendance saved."));
+      expect(invalidate).toHaveBeenCalled();
+    });
+
+    it("clears the recorded turnout when the field is left blank", async () => {
+      updateEventAttendance.mockResolvedValue({});
+      const user = userEvent.setup();
+      const data = completedCoordinatorPage(42);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText(/Leave blank to clear/)).toBeTruthy();
+      await user.clear(screen.getByLabelText("Actual attendance"));
+      await user.click(screen.getByRole("button", { name: "Save attendance" }));
+
+      await waitFor(() =>
+        expect(updateEventAttendance).toHaveBeenCalledWith({ data: { id: 1042 } })
+      );
+      await waitFor(() => expect(success).toHaveBeenCalledWith("Attendance cleared."));
+      expect(invalidate).toHaveBeenCalled();
+    });
+
+    it("blocks unparseable text instead of clearing the count", async () => {
+      const user = userEvent.setup();
+      const data = completedCoordinatorPage(42);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      const input = screen.getByLabelText("Actual attendance");
+      await user.clear(input);
+      await user.type(input, "42 people");
+
+      expect(await screen.findByText(ACTUAL_ATTENDANCE_MESSAGE)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Save attendance" })).toHaveProperty(
+        "disabled",
+        true
+      );
+      expect(updateEventAttendance).not.toHaveBeenCalled();
+    });
+
+    it("names the limit for an over-limit turnout", async () => {
+      const user = userEvent.setup();
+      const data = completedCoordinatorPage(42);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      const input = screen.getByLabelText("Actual attendance");
+      await user.clear(input);
+      await user.type(input, "9999999999");
+
+      expect(await screen.findByText(ACTUAL_ATTENDANCE_MAX_MESSAGE)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Save attendance" })).toHaveProperty(
+        "disabled",
+        true
+      );
+      expect(updateEventAttendance).not.toHaveBeenCalled();
+    });
+
+    it("warns that the page is stale when the reload fails after a save", async () => {
+      updateEventAttendance.mockResolvedValue({});
+      invalidate.mockRejectedValueOnce(new Error("reload failed"));
+      const user = userEvent.setup();
+      const data = completedCoordinatorPage(42);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      const input = screen.getByLabelText("Actual attendance");
+      await user.clear(input);
+      await user.type(input, "87");
+      await user.click(screen.getByRole("button", { name: "Save attendance" }));
+
+      await waitFor(() =>
+        expect(warning).toHaveBeenCalledWith("Attendance saved. Refresh this page to see it.")
+      );
+      expect(success).not.toHaveBeenCalled();
+    });
+
+    it("refuses a negative turnout and keeps the save disabled", async () => {
+      const user = userEvent.setup();
+      const data = completedCoordinatorPage(42);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      const input = screen.getByLabelText("Actual attendance");
+      await user.clear(input);
+      await user.type(input, "-5");
+
+      expect(await screen.findByText(ACTUAL_ATTENDANCE_MESSAGE)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Save attendance" })).toHaveProperty(
+        "disabled",
+        true
+      );
+      expect(updateEventAttendance).not.toHaveBeenCalled();
+    });
   });
 });

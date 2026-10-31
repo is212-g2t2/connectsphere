@@ -109,6 +109,11 @@ export const eventRequests = pgTable(
       .notNull()
       .default([]),
     expectedAttendance: integer("expected_attendance"),
+    /**
+     * PTR-157: the Coordinator's count of people who attended, recorded when the event is
+     * completed. Null until then; a completed event without a count shows "Not recorded".
+     */
+    actualAttendance: integer("actual_attendance"),
     description: text("description").notNull().default(""),
     eventType: text("event_type").notNull().default(""),
     venueRequirements: text("venue_requirements").notNull().default(""),
@@ -207,6 +212,11 @@ export const eventRequests = pgTable(
     check(
       "event_requests_registration_capacity_positive",
       sql`${table.registrationCapacity} is null or ${table.registrationCapacity} > 0`
+    ),
+    // PTR-157: actual attendance is a count of zero or more. Null means not recorded.
+    check(
+      "event_requests_actual_attendance_nonnegative",
+      sql`${table.actualAttendance} is null or ${table.actualAttendance} >= 0`
     ),
     check(
       "event_requests_registration_closes_after_opens",
