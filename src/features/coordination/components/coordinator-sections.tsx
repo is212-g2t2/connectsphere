@@ -47,6 +47,7 @@ import {
   CancellationRequestHistory,
   ChangeRequestHistory,
   ClarificationThread,
+  InformationChangeHistory,
 } from "#/features/event-requests/components/request-message-blocks";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import {
@@ -76,6 +77,21 @@ function hasPendingCancellation(data: EventPageData): boolean {
 
 function hasChangeHistory(data: EventPageData): boolean {
   return (coordinationRequest(data)?.changeRequests ?? []).length > 0;
+}
+
+/** PTR-164 AC3: the change log has entries to show, mirroring `InformationChangesBody`. */
+function hasInformationChanges(data: EventPageData): boolean {
+  return (coordinationRequest(data)?.informationChanges ?? []).length > 0;
+}
+
+/** PTR-164 AC3: a cancelled event keeps its decided cancellation requests as history. */
+function hasDecidedCancellation(data: EventPageData): boolean {
+  const request = coordinationRequest(data);
+  return (
+    request !== null &&
+    request.status === "cancelled" &&
+    request.cancellationRequests.some(item => item.outcome !== null)
+  );
 }
 
 /** The clarification thread has entries to show, mirroring `MessagesBody`'s null condition. */
@@ -108,6 +124,15 @@ function coordinationRequest(data: EventPageData): CoordinationRequest | null {
 /** The viewer holds this request exactly when the page is the assigned (event) kind. */
 function isAssignedView(data: EventPageData, request: CoordinationRequest): boolean {
   return data.kind === "event" && request.assignedCoordinatorId !== null;
+}
+
+/**
+ * The assigned Coordinator's view holds the request, so its free-text reasons stay off the
+ * unassigned queue detail. The Lead's assigned-event page renders no coordination section.
+ */
+function isAssignedCoordinatorView(data: EventPageData): boolean {
+  const request = coordinationRequest(data);
+  return request !== null && isAssignedView(data, request);
 }
 
 /**
@@ -155,11 +180,23 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
       render: inner => <ChangesBody data={inner} />,
     },
     {
+      id: "information-changes",
+      label: "Information changes",
+      visible: inner => isAssignedCoordinatorView(inner) && hasInformationChanges(inner),
+      render: inner => <InformationChangesBody data={inner} />,
+    },
+    {
       id: "cancellation",
       label: "Cancellation request",
       visible: inner =>
         hasPendingCancellation(inner) && coordinationRequest(inner)?.status !== "cancelled",
       render: inner => <CancellationBody data={inner} />,
+    },
+    {
+      id: "cancellation-history",
+      label: "Cancellation history",
+      visible: inner => isAssignedCoordinatorView(inner) && hasDecidedCancellation(inner),
+      render: inner => <CancellationHistoryBody data={inner} />,
     },
   ];
 }
@@ -655,6 +692,18 @@ function ChangesBody({ data }: { data: EventPageData }) {
 }
 
 /**
+ * PTR-164 AC3: the change log with its significant-change reasons. The assigned Coordinator reads
+ * it; the Organiser's record shows the same entries. The unassigned queue detail shows no reason,
+ * so the section stays on the assigned view.
+ */
+function InformationChangesBody({ data }: { data: EventPageData }) {
+  const request = coordinationRequest(data);
+  const changes = request?.informationChanges ?? [];
+  if (!request || changes.length === 0) return null;
+  return <InformationChangeHistory changes={changes} />;
+}
+
+/**
  * PTR-145: the Lead's assignment form. It renders on the unassigned queue detail and on an
  * assigned event, and it offers every Event Coordinator, unfiltered and unranked (criterion 6).
  * A move takes effect at once, and the server refuses a stale observation (criterion 8).
@@ -831,13 +880,12 @@ function LeadAssignmentBody({
 }
 
 /**
- * The waiting cancellation request. The assigned Coordinator decides it; the Lead reads the same
- * record as history, with no action (PTR-144).
+ * The waiting cancellation request. The assigned Coordinator decides it; the unassigned queue
+ * detail reads the same record as history, with no action (PTR-144).
  */
 function CancellationBody({ data }: { data: EventPageData }) {
   const request = coordinationRequest(data);
   if (!request) return null;
-  if (request.status === "cancelled") return null;
   if (!request.cancellationRequests.some(item => item.outcome === null)) return null;
   if (!isAssignedView(data, request)) return <CancellationRequestHistory request={request} />;
   return (
@@ -852,6 +900,19 @@ function CancellationBody({ data }: { data: EventPageData }) {
       </div>
     </div>
   );
+}
+
+/**
+ * PTR-164 AC3: a cancelled event keeps its decided cancellation requests as history with the
+ * cancellation reason, so the assigned Coordinator reads why. A record section, not an action:
+ * its id stays out of the action bar and the sticky rail.
+ */
+function CancellationHistoryBody({ data }: { data: EventPageData }) {
+  const request = coordinationRequest(data);
+  if (!request || request.status !== "cancelled") return null;
+  const decided = request.cancellationRequests.filter(item => item.outcome !== null);
+  if (decided.length === 0) return null;
+  return <CancellationRequestHistory request={{ ...request, cancellationRequests: decided }} />;
 }
 
 /** The confirmation action for a plannable assigned event; triage has no event to confirm. */

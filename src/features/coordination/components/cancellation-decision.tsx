@@ -5,7 +5,6 @@ import { toast } from "sonner";
 
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -21,13 +20,14 @@ import { Textarea } from "#/components/ui/textarea";
 import { formatVenuePeriod } from "#/features/event-requests/format";
 import {
   CANCELLATION_DECLINE_REASON_MAX,
+  CANCELLATION_REASON_MAX,
   EVENT_CANCELLATION_CLOSED,
   EventCancellationDeclineInput,
+  EventCancellationInput,
 } from "#/features/event-requests/schema";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { cancelEvent, declineEventCancellation } from "#/features/events/server-fns";
 import { toLocalMinuteValue } from "#/features/venues/availability";
-import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
@@ -35,6 +35,8 @@ import { skipRootFilter } from "#/lib/invalidate";
  * by cancelling the event or by declining with a reason (AC8). The event's arrangements are not
  * released here (AC6); the page lists them once the event is cancelled. A request can wait while
  * the event is completed (PTR-25), and `canCancel` is then false: only the decline is offered.
+ *
+ * PTR-164 AC1: cancelling needs a reason, carried on the Organiser's cancellation notice.
  */
 export function CancellationDecision({
   requestId,
@@ -47,12 +49,31 @@ export function CancellationDecision({
 }) {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [cancellation, cancel, cancelling] = useMutation(async () => {
-    await cancelEvent({ data: { id: requestId } });
-    setDialogOpen(false);
-    toast.success("Event cancelled. Everyone concerned will be notified.");
-    await router.invalidate({ filter: skipRootFilter });
-  }, "Could not cancel this event. Try again.");
+
+  const cancelForm = useForm({
+    defaultValues: { reason: "" },
+    validators: { onSubmit: EventCancellationInput.omit({ id: true }) },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await cancelEvent({ data: { id: requestId, reason: value.reason } });
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error && error.message
+                ? error.message
+                : "Could not cancel this event. Try again.",
+          },
+        });
+        return;
+      }
+      formApi.reset();
+      setDialogOpen(false);
+      toast.success("Event cancelled. Everyone concerned will be notified.");
+      await router.invalidate({ filter: skipRootFilter });
+    },
+  });
 
   const declineForm = useForm({
     defaultValues: { reason: "" },
@@ -101,34 +122,70 @@ export function CancellationDecision({
           {canCancel && (
             <div className="mt-4 flex flex-col items-start gap-2">
               <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <AlertDialogTrigger render={<Button variant="destructive" disabled={cancelling} />}>
+                <AlertDialogTrigger render={<Button variant="destructive" />}>
                   Cancel event
                 </AlertDialogTrigger>
                 <AlertDialogContent size="sm">
                   <AlertDialogHeader>
                     <AlertDialogTitle>Cancel event</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This cancels {eventName}. You cannot undo it.
+                      This cancels {eventName}. You cannot undo it. The Organiser is told why; the
+                      registered Attendees and the staff holding arrangements are notified.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel size="sm" disabled={cancelling}>
-                      Keep event
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      size="sm"
-                      variant="destructive"
-                      disabled={cancelling}
-                      onClick={() => void cancel()}
+                  <form
+                    noValidate
+                    onSubmit={event => {
+                      event.preventDefault();
+                      void cancelForm.handleSubmit();
+                    }}
+                  >
+                    <cancelForm.Field name="reason">
+                      {field => (
+                        <Field data-invalid={field.state.meta.errors.length > 0}>
+                          <FieldLabel htmlFor="cancellation-reason">
+                            Reason for cancelling
+                          </FieldLabel>
+                          <Textarea
+                            id="cancellation-reason"
+                            rows={3}
+                            maxLength={CANCELLATION_REASON_MAX}
+                            value={field.state.value}
+                            aria-invalid={field.state.meta.errors.length > 0}
+                            onChange={event => field.handleChange(event.target.value)}
+                            onBlur={field.handleBlur}
+                          />
+                          <FieldError errors={field.state.meta.errors} />
+                        </Field>
+                      )}
+                    </cancelForm.Field>
+                    <cancelForm.Subscribe
+                      selector={state => [state.isSubmitting, state.errorMap.onSubmit]}
                     >
-                      {cancelling ? "Cancelling…" : "Cancel the event"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                  {cancellation.status === "error" ? (
-                    <p role="alert" className="body-sm text-destructive">
-                      {cancellation.error}
-                    </p>
-                  ) : null}
+                      {([isSubmitting, onSubmitError]) => (
+                        <>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel size="sm" disabled={Boolean(isSubmitting)}>
+                              Keep event
+                            </AlertDialogCancel>
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="destructive"
+                              disabled={Boolean(isSubmitting)}
+                            >
+                              {isSubmitting ? "Cancelling…" : "Cancel the event"}
+                            </Button>
+                          </AlertDialogFooter>
+                          {typeof onSubmitError === "string" ? (
+                            <p role="alert" className="mt-2 body-sm text-destructive">
+                              {onSubmitError}
+                            </p>
+                          ) : null}
+                        </>
+                      )}
+                    </cancelForm.Subscribe>
+                  </form>
                 </AlertDialogContent>
               </AlertDialog>
             </div>

@@ -93,6 +93,8 @@ test("the assigned Coordinator updates an approved event, and the change is reco
   await expect(
     dialog.getByText(/holds no venue booking, tentative hold or equipment reservation/)
   ).toBeVisible();
+  const changeReason = "The programme now ends later than planned.";
+  await dialog.getByLabel("Reason for this change").fill(changeReason);
   await dialog.getByRole("button", { name: "Save anyway" }).click();
 
   await expect(page.getByText("Event information saved.", { exact: true })).toBeVisible();
@@ -105,10 +107,25 @@ test("the assigned Coordinator updates an approved event, and the change is reco
     .where(eq(schema.eventInformationChanges.eventRequestId, id))
     .orderBy(asc(schema.eventInformationChanges.id));
   expect(
-    log.map(({ field, amendment, changedById }) => ({ field, amendment, changedById }))
+    log.map(({ field, amendment, changedById, reason }) => ({
+      field,
+      amendment,
+      changedById,
+      reason,
+    }))
   ).toEqual([
-    { field: "eventName", amendment: { from: name, to: renamed }, changedById: COORDINATOR_ID },
-    { field: "expectedAttendance", amendment: { from: 40, to: 65 }, changedById: COORDINATOR_ID },
+    {
+      field: "eventName",
+      amendment: { from: name, to: renamed },
+      changedById: COORDINATOR_ID,
+      reason: changeReason,
+    },
+    {
+      field: "expectedAttendance",
+      amendment: { from: 40, to: 65 },
+      changedById: COORDINATOR_ID,
+      reason: changeReason,
+    },
   ]);
 });
 
@@ -207,6 +224,9 @@ test("a significant change names the booking the event holds, and saves on confi
       dialog.getByText(`Venue booking: ${venueName}, 1 Jan 2030, 09:00 – 17:00`)
     ).toBeVisible();
     await expect(dialog.getByText(/will be notified of the change/)).toBeVisible();
+    await dialog
+      .getByLabel("Reason for this change")
+      .fill("The programme now ends later than planned.");
     await dialog.getByRole("button", { name: "Save anyway" }).click();
 
     await expect(

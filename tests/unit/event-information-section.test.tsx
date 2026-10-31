@@ -49,6 +49,7 @@ const request = {
   clarifications: [],
   changeRequests: [],
   cancellationRequests: [],
+  informationChanges: [],
   submittedAt: new Date("2026-09-20T00:00:00Z"),
   decidedAt: null,
 } as unknown as EventRequestDetail;

@@ -132,6 +132,7 @@ const request: CoordinationRequest = {
   clarifications: [],
   changeRequests: [waiting],
   cancellationRequests: [],
+  informationChanges: [],
   outstandingReleases: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,
@@ -378,6 +379,10 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(updateEventInformation).not.toHaveBeenCalled();
+    await user.type(
+      within(dialog).getByLabelText("Reason for this change"),
+      "The organiser confirmed the new attendance."
+    );
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
     await waitFor(() => expect(updateEventInformation).toHaveBeenCalled());
@@ -386,6 +391,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
         id: 7,
         amendments: { expectedAttendance: 150 },
         acknowledgeSignificant: true,
+        reason: "The organiser confirmed the new attendance.",
         changeRequestId: 31,
       },
     });
@@ -575,6 +581,13 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       "Venue booking: Harbour Hall, 1 Dec 2030, 18:00 – 22:00",
       "Equipment reservation: Projector × 2",
     ]);
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+    expect(updateEventInformation).not.toHaveBeenCalled();
+    expect(within(dialog).getByText("Enter a reason for this change")).toBeTruthy();
+    await user.type(
+      within(dialog).getByLabelText("Reason for this change"),
+      "The organiser confirmed the new attendance."
+    );
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
     await waitFor(() =>

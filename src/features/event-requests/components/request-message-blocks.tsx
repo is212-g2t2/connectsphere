@@ -191,10 +191,12 @@ export function CancellationRequestHistory({ request }: { request: EventRequestD
                 <p className="mt-2 body-md font-medium">
                   {cancellationOutcome(item, coordinatorName)}
                 </p>
-                {item.declineReason ? (
+                {(item.declineReason ?? item.cancelReason) ? (
                   <div className="mt-3 border-l-2 border-border pl-4">
                     <p className="eyebrow text-muted-foreground">Reason</p>
-                    <p className="mt-1 body-md whitespace-pre-line">{item.declineReason}</p>
+                    <p className="mt-1 body-md whitespace-pre-line">
+                      {item.declineReason ?? item.cancelReason}
+                    </p>
                   </div>
                 ) : null}
               </li>
@@ -221,6 +223,103 @@ export function Detail({
       <dd className="mt-2 body-sm whitespace-pre-line">{children}</dd>
     </div>
   );
+}
+
+/**
+ * PTR-164 AC3: the information-change log as history. Each save writes one row per changed field;
+ * rows from one save share their time and author, so they render as one entry with its fields and
+ * one reason block. The Organiser and the assigned Coordinator read why here. The shape is
+ * structural so no client-reachable module imports the server reader.
+ */
+export function InformationChangeHistory({
+  changes,
+}: {
+  changes: readonly InformationChangeRow[];
+}) {
+  const groups = groupInformationChanges(changes);
+  return (
+    <section aria-labelledby="information-changes-heading">
+      <Card>
+        <CardContent>
+          <h2 id="information-changes-heading" className="display-h3">
+            Information changes
+          </h2>
+          <ul className="mt-4 divide-y divide-border">
+            {groups.map(group => (
+              <li key={group.key} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between">
+                  <span className="eyebrow text-muted-foreground">
+                    {group.items.map(item => clarificationFieldLabel(item.field)).join(", ")}
+                  </span>
+                  <time
+                    dateTime={group.changedAt.toISOString()}
+                    className="body-sm text-muted-foreground"
+                  >
+                    {formatInstant(group.changedAt)}
+                  </time>
+                </div>
+                {group.items.map(item => (
+                  <p key={item.id} className="mt-2 body-sm text-foreground">
+                    {formatAmendmentValue(item.field, item.amendment.from)} →{" "}
+                    {formatAmendmentValue(item.field, item.amendment.to)}
+                  </p>
+                ))}
+                <p className="mt-2 body-sm text-muted-foreground">
+                  Changed by {group.changedByName}
+                </p>
+                {group.reason ? (
+                  <div className="mt-3 border-l-2 border-border pl-4">
+                    <p className="eyebrow text-muted-foreground">Reason</p>
+                    <p className="mt-1 body-md whitespace-pre-line">{group.reason}</p>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+interface InformationChangeRow {
+  id: number;
+  field: ClarificationField;
+  amendment: { from: ClarificationAmendmentValue; to: ClarificationAmendmentValue };
+  changedByName: string;
+  changedAt: Date;
+  reason: string | null;
+}
+
+/**
+ * Fold one save's rows into one entry. Rows from one save share their time and author; the stored
+ * rows stay per field.
+ */
+function groupInformationChanges(changes: readonly InformationChangeRow[]) {
+  const groups: {
+    key: string;
+    items: InformationChangeRow[];
+    changedAt: Date;
+    changedByName: string;
+    reason: string | null;
+  }[] = [];
+  for (const item of changes) {
+    const key = `${item.changedAt.toISOString()}|${item.changedByName}`;
+    const group = groups.find(entry => entry.key === key);
+    if (group) {
+      group.items.push(item);
+      group.reason ??= item.reason;
+    } else {
+      groups.push({
+        key,
+        items: [item],
+        changedAt: item.changedAt,
+        changedByName: item.changedByName,
+        reason: item.reason,
+      });
+    }
+  }
+  return groups;
 }
 
 /**

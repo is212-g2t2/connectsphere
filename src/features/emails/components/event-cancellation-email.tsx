@@ -35,7 +35,7 @@ export const EventCancellationRequestedEmail = ({
   );
 };
 
-type EventCancelledEmailProps = { eventUrl: string } & (
+type EventCancelledEmailProps = { eventUrl: string; reason?: string } & (
   | { audience: "organiser" | "attendee" | "technical_support"; eventName: string }
   | { audience: "venue_staff"; venueName: string; startsAt: string; endsAt: string }
 );
@@ -44,7 +44,8 @@ type EventCancelledEmailProps = { eventUrl: string } & (
  * PTR-54 AC3, AC4, AC7: the event is cancelled. Staff are told what they still hold, because
  * nothing is released for them (AC6). The Venue Staff copy names the booking and not the event, as
  * every Venue Staff notice does (PTR-8 AC3); the bookings view it links to names the event, as
- * PTR-37 AC1 requires.
+ * PTR-37 AC1 requires. PTR-164 AC1, AC5: the Organiser's and each Attendee's copy shows the
+ * reason; the staff copies show none.
  */
 export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
   if (props.audience === "venue_staff") {
@@ -66,7 +67,7 @@ export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
     );
   }
 
-  const { audience, eventName, eventUrl } = props;
+  const { audience, eventName, eventUrl, reason } = props;
   return (
     <Layout previewText={`${eventName} has been cancelled`}>
       <Section>
@@ -77,6 +78,9 @@ export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
             ? " Its equipment reservations are still held: release them when you are ready."
             : ""}
         </Text>
+        {(audience === "organiser" || audience === "attendee") && reason ? (
+          <Text style={{ ...emailText, whiteSpace: "pre-line" }}>Reason: {reason}</Text>
+        ) : null}
         <Button href={eventUrl} style={emailButton}>
           {audience === "organiser" ? "View your request" : "View the event"}
         </Button>

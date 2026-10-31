@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission, requireSession } from "#/features/auth/session";
 import {
   parseEventCancellationDeclineInput,
+  parseEventCancellationInput,
   parseEventChangeRequestDeclineInput,
   parseEventInformationInput,
   parseEventRequestId,
@@ -132,10 +133,11 @@ export const listEventArrangements = createServerFn({ method: "GET" })
  * PTR-54: The assigned Coordinator cancels the event named by a waiting cancellation request. The
  * handler re-reads the assignment and the request. The permission only states that the caller may
  * coordinate. The coordination page then lists what the event still holds.
+ * PTR-164 AC1: the call carries the Coordinator's reason for the notices.
  */
 export const cancelEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
-  .validator(parseEventRequestId)
+  .validator(parseEventCancellationInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleCancelEvent }] = await loadCancelServer();
     const event = await handleCancelEvent(data, context.user, db);

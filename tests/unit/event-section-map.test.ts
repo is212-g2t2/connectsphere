@@ -263,6 +263,31 @@ describe("eventSections", () => {
     expect(ids(settled)).not.toContain("cancellation");
   });
 
+  it("lists a decided cancellation as its own record section, outside the rail", () => {
+    const data = {
+      kind: "event",
+      event: projection("coordinator", { status: "cancelled" }),
+      coordination: {
+        request: {
+          status: "cancelled",
+          assignedCoordinatorId: "coord-a",
+          clarifications: [],
+          changeRequests: [],
+          cancellationRequests: [{ outcome: "cancelled" }],
+          informationChanges: [],
+          outstandingReleases: null,
+        },
+        coordinators: [],
+      },
+    } as unknown as EventPageData;
+    const found = ids(data);
+
+    expect(found).toContain("cancellation-history");
+    expect(found).not.toContain("cancellation");
+    // A record section is no action: neither the action bar nor the sticky rail names it.
+    expect([...railSectionIds(data)]).not.toContain("cancellation-history");
+  });
+
   it("shows request and decision sections for a pending venue staff event", () => {
     expect(
       ids({

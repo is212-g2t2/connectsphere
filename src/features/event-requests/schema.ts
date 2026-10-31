@@ -561,6 +561,27 @@ export function parseEventCancellationDeclineInput(data: unknown) {
   return parsed.data;
 }
 
+/**
+ * PTR-164 AC1: the Coordinator must give a reason when they cancel the event. The Organiser's
+ * cancellation notice carries it.
+ */
+export const CANCELLATION_REASON_MAX = 2000;
+export const CANCELLATION_REASON_REQUIRED_MESSAGE = "Enter a reason for cancelling";
+export const CANCELLATION_REASON_MESSAGE = `The reason must be ${CANCELLATION_REASON_MAX} characters or fewer`;
+export const EventCancellationInput = EventRequestIdInput.extend({
+  reason: z
+    .string({ error: CANCELLATION_REASON_REQUIRED_MESSAGE })
+    .trim()
+    .min(1, CANCELLATION_REASON_REQUIRED_MESSAGE)
+    .max(CANCELLATION_REASON_MAX, CANCELLATION_REASON_MESSAGE),
+});
+
+export function parseEventCancellationInput(data: unknown) {
+  const parsed = EventCancellationInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
 /** PTR-21 criterion 2: the plain-language label every screen shows instead of the stored code. */
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
@@ -761,6 +782,14 @@ export const EVENT_INFORMATION_AMENDMENTS_MESSAGE = "Choose the event informatio
 export const EVENT_INFORMATION_ONLY_MESSAGE = "Only event information can be updated.";
 
 /**
+ * PTR-164 AC2: the Coordinator must say why they made a significant change. The reason is stored
+ * on the change log and carried on the notices.
+ */
+export const SIGNIFICANT_CHANGE_REASON_MAX = 2000;
+export const SIGNIFICANT_CHANGE_REASON_REQUIRED_MESSAGE = "Enter a reason for this change";
+export const SIGNIFICANT_CHANGE_REASON_MESSAGE = `The reason must be ${SIGNIFICANT_CHANGE_REASON_MAX} characters or fewer`;
+
+/**
  * PTR-22: An event update names the event and includes only columns the Coordinator changed.
  * Refuse other keys, as a clarification reply refuses fields outside its question.
  * The server writes the columns to the locked row and checks the result with the draft rules.
@@ -787,6 +816,15 @@ const EventInformationInput = EventRequestIdInput.extend({
   changeRequestId: z
     .int32({ error: CHANGE_REQUEST_ID_MESSAGE })
     .positive(CHANGE_REQUEST_ID_MESSAGE)
+    .optional(),
+  /**
+   * PTR-164 AC2: why the Coordinator made a significant change. Required on a significant save,
+   * stored on the change log and carried on the notices. Omit it on an ordinary edit.
+   */
+  reason: z
+    .string()
+    .trim()
+    .max(SIGNIFICANT_CHANGE_REASON_MAX, SIGNIFICANT_CHANGE_REASON_MESSAGE)
     .optional(),
 });
 
