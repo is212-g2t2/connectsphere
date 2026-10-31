@@ -28,6 +28,17 @@ import {
   eventRequests,
 } from "#/db/schema";
 
+/** List the `onDelete` actions of the foreign keys from `table` to `equipment_types`. */
+function onDeleteTowardEquipmentTypes(table: Parameters<typeof getTableConfig>[0]) {
+  return getTableConfig(table)
+    .foreignKeys.filter(
+      fk =>
+        getTableConfig(fk.reference().foreignTable as typeof equipmentTypes).name ===
+        "equipment_types"
+    )
+    .map(fk => fk.onDelete);
+}
+
 describe("Database Schema Definitions", () => {
   it("defines auth schema tables and column names", () => {
     expect(getTableColumns(user).email.name).toBe("email");
@@ -127,6 +138,19 @@ describe("Database Schema Definitions", () => {
       "equipment_request_id"
     );
     expect(getTableColumns(equipmentReservations).equipmentTypeId.name).toBe("equipment_type_id");
+  });
+
+  it("restricts type deletion while a line or reservation references it, and cascades out-of-service rows (PTR-162 AC4)", () => {
+    // A type is available to events at every venue (PTR-162 AC6): no venue column may appear here.
+    expect(Object.keys(getTableColumns(equipmentTypes)).toSorted()).toEqual([
+      "createdAt",
+      "id",
+      "name",
+      "quantityHeld",
+    ]);
+    expect(onDeleteTowardEquipmentTypes(equipmentRequests)).toEqual(["restrict"]);
+    expect(onDeleteTowardEquipmentTypes(equipmentReservations)).toEqual(["restrict"]);
+    expect(onDeleteTowardEquipmentTypes(equipmentUnavailability)).toEqual(["cascade"]);
   });
 
   it("snapshots the reservation period on the reservation (PTR-41)", () => {

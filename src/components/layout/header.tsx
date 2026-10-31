@@ -44,6 +44,7 @@ const ACTIVE_TARGETS = [
   "/venue-bookings",
   "/venue-holds",
   "/safety-reviews",
+  "/equipment-types",
   "/venues",
   "/dashboard",
 ] as const;
@@ -92,12 +93,14 @@ export function Header() {
   const showRoomLayouts = can(role, { venue: ["update"] });
   const showApprovedBookings = can(role, { venue_request: ["decide"] });
   const showSafetyReviews = can(role, { safety_review: ["read"] });
+  const showEquipmentCatalogue = can(role, { equipment_type: ["manage"] });
   const showSections =
     showEventRequests ||
     showCoordination ||
     showVenues ||
     showApprovedBookings ||
-    showSafetyReviews;
+    showSafetyReviews ||
+    showEquipmentCatalogue;
 
   const destinations = [
     { to: "/dashboard", label: "Dashboard", show: true },
@@ -109,6 +112,7 @@ export function Header() {
     { to: "/venue-bookings", label: "Approved bookings", show: showApprovedBookings },
     { to: "/venue-holds", label: "Hold requests", show: showApprovedBookings },
     { to: "/safety-reviews", label: "Safety reviews", show: showSafetyReviews },
+    { to: "/equipment-types", label: "Equipment catalogue", show: showEquipmentCatalogue },
   ].filter(destination => destination.show);
 
   return (
@@ -205,6 +209,15 @@ export function Header() {
                 className={SECTION_LINK_CLASSNAME}
               >
                 Safety reviews
+              </Link>
+            )}
+            {showEquipmentCatalogue && (
+              <Link
+                to="/equipment-types"
+                aria-current={pathname === "/equipment-types" ? "page" : undefined}
+                className={SECTION_LINK_CLASSNAME}
+              >
+                Equipment catalogue
               </Link>
             )}
           </nav>

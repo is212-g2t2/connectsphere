@@ -22,9 +22,12 @@ import {
 import {
   checkEquipmentAvailability,
   checkLineAvailability,
+  deleteEquipmentType,
   listEquipmentTypes,
   releaseEquipment,
   reserveEquipment,
+  saveEquipmentType,
+  saveEquipmentUnavailability,
   updateEquipmentArrangement,
 } from "#/features/equipment-requests/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
@@ -1338,17 +1341,12 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
-      expect(await refusalFrom(listEquipmentTypes, {}, "GET")).toEqual({
-        status: 401,
-        body: "Unauthorized",
-      });
     });
 
     it("permits Technical Support", async () => {
       signIn("technical_support_staff");
 
       expect((await call(checkEquipmentAvailability, availabilityInput)).error).toBeUndefined();
-      expect((await call(listEquipmentTypes, {}, "GET")).error).toBeUndefined();
     });
 
     it.each(["attendee", "event_organiser", "event_coordinator", "venue_staff"])(
@@ -1359,9 +1357,73 @@ describe("server-function authorization (PTR-69)", () => {
         expect(await refusalFrom(checkEquipmentAvailability, availabilityInput)).toMatchObject({
           status: 403,
         });
-        expect(await refusalFrom(listEquipmentTypes, {}, "GET")).toMatchObject({ status: 403 });
       }
     );
+  });
+
+  describe("equipment catalogue (PTR-162)", () => {
+    const typeInput = { name: "Projector", quantityHeld: 4 };
+    const typeIdInput = { id: 1 };
+    const unavailabilityInput = {
+      equipmentTypeId: 1,
+      reason: "Maintenance",
+      quantityUnavailable: 1,
+    };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(saveEquipmentType, typeInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(deleteEquipmentType, typeIdInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(saveEquipmentUnavailability, unavailabilityInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      // The catalogue list shares the catalogue-manage verb, as its route guard does.
+      expect(await refusalFrom(listEquipmentTypes, {}, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each([
+      "attendee",
+      "event_organiser",
+      "event_coordinator",
+      "event_coordinator_lead",
+      "venue_staff",
+      "safety_officer",
+    ])("refuses %s with 403 Forbidden before validating", async role => {
+      signIn(role);
+
+      expect(await refusalFrom(saveEquipmentType, {})).toMatchObject({ status: 403 });
+      expect(await refusalFrom(deleteEquipmentType, {})).toMatchObject({ status: 403 });
+      expect(await refusalFrom(saveEquipmentUnavailability, {})).toMatchObject({ status: 403 });
+      expect(await refusalFrom(listEquipmentTypes, {}, "GET")).toMatchObject({ status: 403 });
+    });
+
+    it("lets Technical Support past the permission guard to validation", async () => {
+      signIn("technical_support_staff");
+
+      expect((await call(listEquipmentTypes, {}, "GET")).error).toBeUndefined();
+      expect(await messageFrom(saveEquipmentType, { name: "", quantityHeld: 1 })).toBe(
+        "Enter an equipment type"
+      );
+      expect(await messageFrom(deleteEquipmentType, { id: 0 })).toBe("Choose an equipment type");
+      expect(
+        await messageFrom(saveEquipmentUnavailability, {
+          equipmentTypeId: 1,
+          reason: "",
+          quantityUnavailable: 1,
+        })
+      ).toBe("Enter a reason for the out-of-service units");
+    });
   });
 
   describe("events", () => {
