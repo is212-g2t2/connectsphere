@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { ARRANGEMENT_STATES } from "#/features/equipment-requests/schema";
-import { SIGNIFICANT_FIELDS } from "#/features/event-requests/schema";
+import { EVENT_REQUEST_STATUSES, SIGNIFICANT_FIELDS } from "#/features/event-requests/schema";
 import { safetyReviewDecisionLabel } from "#/features/safety-reviews/schema";
 
 /**
@@ -281,7 +281,17 @@ const payloadSchemas = {
     }),
   ]),
   /** PTR-54 AC8: the Coordinator declined the Organiser's cancellation request, with a reason. */
-  event_cancellation_declined: z.object({ eventName: z.string(), reason: z.string() }),
+  event_cancellation_declined: z.object({
+    eventName: z.string(),
+    reason: z.string(),
+    /**
+     * PTR-156: true when completion closed the request. Absent on manual declines and on rows
+     * stored before this story, which still parse.
+     */
+    closeOut: z.boolean().optional(),
+    /** PTR-156: the event status at decline time. Absent on rows stored before this story. */
+    eventStatus: z.enum(EVENT_REQUEST_STATUSES).optional(),
+  }),
   /**
    * PTR-47 AC4: a withdrawal freed a place from an event that had been at its registration
    * capacity. `limit` is the place limit at the time; `audience` records who the notice went to.
@@ -696,7 +706,9 @@ export function notificationSummary(notification: NotificationPayload): string {
         ? `Event cancelled: release the booking at ${notification.payload.venueName}`
         : `Event cancelled: ${notification.payload.eventName}`;
     case "event_cancellation_declined":
-      return `Cancellation request declined: ${notification.payload.eventName}`;
+      return notification.payload.closeOut === true
+        ? `Cancellation request closed: ${notification.payload.eventName}`
+        : `Cancellation request declined: ${notification.payload.eventName}`;
     case "registration_place_freed":
       return `A place has been freed for ${notification.payload.eventName}`;
     case "registration_opened":

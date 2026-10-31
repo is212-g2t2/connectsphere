@@ -347,6 +347,8 @@ export function renderNotificationEmail(
         element: createElement(EventCancellationDeclinedEmail, {
           eventName: notification.payload.eventName,
           reason: notification.payload.reason,
+          closeOut: notification.payload.closeOut,
+          eventStatus: notification.payload.eventStatus,
           eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
