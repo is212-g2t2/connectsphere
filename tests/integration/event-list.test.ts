@@ -1321,6 +1321,8 @@ describe("event list handler (PTR-8)", () => {
           {
             id: "el-equipment-ours",
             item: "Projector",
+            equipmentTypeId: null,
+            shortfall: null,
             arrangementStatus: "reserved",
             notes: "HDMI adapter included",
             quantity: 1,
@@ -1336,6 +1338,8 @@ describe("event list handler (PTR-8)", () => {
           {
             id: "el-equipment-other",
             item: "Microphone",
+            equipmentTypeId: null,
+            shortfall: null,
             arrangementStatus: "requested",
             notes: null,
             quantity: 1,
