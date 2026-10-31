@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { NewVenuePage } from "#/features/venues/components/new-venue-page";
+import { listRoomLayouts } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/new")({
@@ -11,5 +12,6 @@ export const Route = createFileRoute("/_authenticated/venues/new")({
       throw redirect({ to: "/venues" });
     }
   },
-  component: NewVenuePage,
+  loader: async () => ({ layouts: await listRoomLayouts() }),
+  component: () => <NewVenuePage layouts={Route.useLoaderData().layouts} />,
 });

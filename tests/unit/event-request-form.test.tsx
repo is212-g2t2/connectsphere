@@ -3,7 +3,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { EventRequestForm } from "#/features/event-requests/components/request-form";
+import {
+  EventRequestForm,
+  layoutOptionForPreference,
+  otherLabelForOptions,
+} from "#/features/event-requests/components/request-form";
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import {
   REGISTRATION_CAPACITY_MESSAGE,
@@ -13,6 +17,8 @@ import {
   REGISTRATION_OPENS_REQUIRED_MESSAGE,
 } from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import { INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 
 const BLANK_DRAFT = {
   eventName: "",
@@ -87,7 +93,7 @@ describe("EventRequestForm", () => {
     const onSave = makeOnSave();
     render(<EventRequestForm onSave={onSave} />);
 
-    fill("Event name (required)", "Community workshop");
+    fill("Event name", "Community workshop");
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
@@ -106,7 +112,7 @@ describe("EventRequestForm", () => {
     const onSave = makeOnSave();
     render(<EventRequestForm onSave={onSave} />);
 
-    fill("Event name (required)", "Community workshop");
+    fill("Event name", "Community workshop");
     await user.click(screen.getByRole("button", { name: "Add equipment" }));
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
@@ -127,15 +133,15 @@ describe("EventRequestForm", () => {
     render(<EventRequestForm initialValues={initialValues} onSave={onSave} />);
 
     const displayedValues = {
-      "Event name (required)": initialValues.eventName,
-      "Purpose (required)": initialValues.purpose,
-      "Expected attendance (required)": "125",
-      "Description (required)": initialValues.description,
+      "Event name": initialValues.eventName,
+      Purpose: initialValues.purpose,
+      "Expected attendance": "125",
+      Description: initialValues.description,
       "Special arrangements (optional)": initialValues.specialArrangements,
-      "Proposed start 1 (required)": "2030-11-18T09:30",
-      "Proposed end 1 (required)": "2030-11-18T12:45",
-      "Proposed start 2 (required)": "2030-11-20T14:15",
-      "Proposed end 2 (required)": "2030-11-20T17:30",
+      "Proposed start 1": "2030-11-18T09:30",
+      "Proposed end 1": "2030-11-18T12:45",
+      "Proposed start 2": "2030-11-20T14:15",
+      "Proposed end 2": "2030-11-20T17:30",
       "Equipment type 1": "  Wireless microphones  ",
       "Quantity 1": "2",
       "Equipment type 2": "HDMI projector & screen",
@@ -156,9 +162,9 @@ describe("EventRequestForm", () => {
     expect(
       screen.getByRole("combobox", { name: "Type of event (optional)" }).textContent
     ).toContain("Other");
-    expect(
-      screen.getByRole("combobox", { name: "Room-layout preference (required)" }).textContent
-    ).toContain("Other");
+    expect(screen.getByRole("combobox", { name: "Room-layout preference" }).textContent).toContain(
+      "Other"
+    );
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
@@ -170,12 +176,12 @@ describe("EventRequestForm", () => {
     const onSave = makeOnSave();
     render(<EventRequestForm onSave={onSave} />);
 
-    fill("Event name (required)", "Workshop");
+    fill("Event name", "Workshop");
     await user.click(screen.getByRole("button", { name: "Add proposed date" }));
-    fill("Proposed start 1 (required)", "2030-11-18T09:30");
-    fill("Proposed end 1 (required)", "2030-11-18T11:00");
-    fill("Proposed start 2 (required)", "2030-11-19T13:00");
-    fill("Proposed end 2 (required)", "2030-11-19T15:30");
+    fill("Proposed start 1", "2030-11-18T09:30");
+    fill("Proposed end 1", "2030-11-18T11:00");
+    fill("Proposed start 2", "2030-11-19T13:00");
+    fill("Proposed end 2", "2030-11-19T15:30");
     await user.click(screen.getByRole("button", { name: "Add equipment" }));
     fill("Equipment type 1", "Projector");
     fill("Quantity 1", "1");
@@ -204,13 +210,13 @@ describe("EventRequestForm", () => {
   });
 
   it.each([
-    ["Proposed end 1 (required)", "2030-11-18T09:30", "later than the start"],
-    ["Proposed end 1 (required)", "2030-11-18T09:29", "later than the start"],
-    ["Proposed end 2 (required)", "2030-11-20T14:15", "later than the start"],
-    ["Expected attendance (required)", "0", "positive whole number"],
-    ["Expected attendance (required)", "-1", "positive whole number"],
-    ["Expected attendance (required)", "1.5", "positive whole number"],
-    ["Expected attendance (required)", "1.0000000000000001", "positive whole number"],
+    ["Proposed end 1", "2030-11-18T09:30", "later than the start"],
+    ["Proposed end 1", "2030-11-18T09:29", "later than the start"],
+    ["Proposed end 2", "2030-11-20T14:15", "later than the start"],
+    ["Expected attendance", "0", "positive whole number"],
+    ["Expected attendance", "-1", "positive whole number"],
+    ["Expected attendance", "1.5", "positive whole number"],
+    ["Expected attendance", "1.0000000000000001", "positive whole number"],
     ["Quantity 1", "0", "positive whole number"],
     ["Quantity 1", "1.0000000000000001", "positive whole number"],
   ])("refuses to save when %s is %s", async (label, value, error) => {
@@ -222,7 +228,12 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     expect(screen.getByLabelText(label, { exact: true }).getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getByRole("alert").textContent).toContain(error);
+    expect(
+      screen
+        .getAllByRole("alert")
+        .map(alert => alert.textContent ?? "")
+        .some(text => text.includes(error))
+    ).toBe(true);
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -301,15 +312,15 @@ describe("EventRequestForm", () => {
     render(<EventRequestForm initialValues={initialValues} onSave={onSave} />);
 
     const description = "  Updated workshop notes\nKeep these even when saving fails.  ";
-    fill("Description (required)", description);
+    fill("Description", description);
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toBe("Could not save this draft. Try again.");
     });
-    expect(inputValue("Description (required)")).toBe(description);
-    expect(inputValue("Event name (required)")).toBe(initialValues.eventName);
-    expect(inputValue("Proposed start 2 (required)")).toBe("2030-11-20T14:15");
+    expect(inputValue("Description")).toBe(description);
+    expect(inputValue("Event name")).toBe(initialValues.eventName);
+    expect(inputValue("Proposed start 2")).toBe("2030-11-20T14:15");
     expect(inputValue("Equipment type 1")).toBe("  Wireless microphones  ");
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
@@ -327,9 +338,9 @@ describe("EventRequestForm", () => {
         .getByRole("checkbox", { name: "Require attendee registration" })
         .getAttribute("aria-checked")
     ).toBe("false");
-    expect(screen.queryByLabelText("Registration capacity (required)", { exact: true })).toBeNull();
-    expect(screen.queryByLabelText("Registration opens (required)", { exact: true })).toBeNull();
-    expect(screen.queryByLabelText("Registration closes (required)", { exact: true })).toBeNull();
+    expect(screen.queryByLabelText("Registration capacity", { exact: true })).toBeNull();
+    expect(screen.queryByLabelText("Registration opens", { exact: true })).toBeNull();
+    expect(screen.queryByLabelText("Registration closes", { exact: true })).toBeNull();
   });
 
   it("saves the registration terms exactly as entered", async () => {
@@ -337,11 +348,11 @@ describe("EventRequestForm", () => {
     const onSave = makeOnSave();
     render(<EventRequestForm onSave={onSave} />);
 
-    fill("Event name (required)", "Workshop");
+    fill("Event name", "Workshop");
     await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
-    fill("Registration capacity (required)", "50");
-    fill("Registration opens (required)", ENABLED_REGISTRATION.registrationOpensAt);
-    fill("Registration closes (required)", ENABLED_REGISTRATION.registrationClosesAt);
+    fill("Registration capacity", "50");
+    fill("Registration opens", ENABLED_REGISTRATION.registrationOpensAt);
+    fill("Registration closes", ENABLED_REGISTRATION.registrationClosesAt);
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
@@ -364,16 +375,17 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(screen.getAllByRole("alert").map(alert => alert.textContent)).toEqual([
+    expect(
+      screen
+        .getAllByRole("alert")
+        .filter(alert => alert.getAttribute("data-slot") === "field-error")
+        .map(alert => alert.textContent)
+    ).toEqual([
       REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
       REGISTRATION_OPENS_REQUIRED_MESSAGE,
       REGISTRATION_CLOSES_REQUIRED_MESSAGE,
     ]);
-    for (const label of [
-      "Registration capacity (required)",
-      "Registration opens (required)",
-      "Registration closes (required)",
-    ]) {
+    for (const label of ["Registration capacity", "Registration opens", "Registration closes"]) {
       expect(screen.getByLabelText(label, { exact: true }).getAttribute("aria-invalid")).toBe(
         "true"
       );
@@ -387,16 +399,14 @@ describe("EventRequestForm", () => {
     render(<EventRequestForm onSave={onSave} />);
 
     await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
-    fill("Registration capacity (required)", "2.5");
-    fill("Registration opens (required)", ENABLED_REGISTRATION.registrationOpensAt);
-    fill("Registration closes (required)", ENABLED_REGISTRATION.registrationClosesAt);
+    fill("Registration capacity", "2.5");
+    fill("Registration opens", ENABLED_REGISTRATION.registrationOpensAt);
+    fill("Registration closes", ENABLED_REGISTRATION.registrationClosesAt);
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     expect(screen.getByText(REGISTRATION_CAPACITY_MESSAGE)).not.toBeNull();
     expect(
-      screen
-        .getByLabelText("Registration capacity (required)", { exact: true })
-        .getAttribute("aria-invalid")
+      screen.getByLabelText("Registration capacity", { exact: true }).getAttribute("aria-invalid")
     ).toBe("true");
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -407,16 +417,14 @@ describe("EventRequestForm", () => {
     render(<EventRequestForm onSave={onSave} />);
 
     await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
-    fill("Registration capacity (required)", "50");
-    fill("Registration opens (required)", "2030-11-08T17:00");
-    fill("Registration closes (required)", "2030-11-08T16:59");
+    fill("Registration capacity", "50");
+    fill("Registration opens", "2030-11-08T17:00");
+    fill("Registration closes", "2030-11-08T16:59");
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     expect(screen.getByText(REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE)).not.toBeNull();
     expect(
-      screen
-        .getByLabelText("Registration closes (required)", { exact: true })
-        .getAttribute("aria-invalid")
+      screen.getByLabelText("Registration closes", { exact: true }).getAttribute("aria-invalid")
     ).toBe("true");
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -436,13 +444,9 @@ describe("EventRequestForm", () => {
         .getByRole("checkbox", { name: "Require attendee registration" })
         .getAttribute("aria-checked")
     ).toBe("true");
-    expect(inputValue("Registration capacity (required)")).toBe("50");
-    expect(inputValue("Registration opens (required)")).toBe(
-      ENABLED_REGISTRATION.registrationOpensAt
-    );
-    expect(inputValue("Registration closes (required)")).toBe(
-      ENABLED_REGISTRATION.registrationClosesAt
-    );
+    expect(inputValue("Registration capacity")).toBe("50");
+    expect(inputValue("Registration opens")).toBe(ENABLED_REGISTRATION.registrationOpensAt);
+    expect(inputValue("Registration closes")).toBe(ENABLED_REGISTRATION.registrationClosesAt);
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
@@ -459,9 +463,9 @@ describe("EventRequestForm", () => {
 
     const toggle = screen.getByRole("checkbox", { name: "Require attendee registration" });
     await user.click(toggle);
-    fill("Registration capacity (required)", "50");
-    fill("Registration opens (required)", ENABLED_REGISTRATION.registrationOpensAt);
-    fill("Registration closes (required)", ENABLED_REGISTRATION.registrationClosesAt);
+    fill("Registration capacity", "50");
+    fill("Registration opens", ENABLED_REGISTRATION.registrationOpensAt);
+    fill("Registration closes", ENABLED_REGISTRATION.registrationClosesAt);
     await user.click(toggle);
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
@@ -533,7 +537,7 @@ describe("EventRequestForm", () => {
     render(<EventRequestForm onSave={onSave} />);
 
     await user.click(screen.getByRole("checkbox", { name: "Power outlets" }));
-    const venueGroup = screen.getByRole("group", { name: "Venue requirements (required)" });
+    const venueGroup = screen.getByRole("group", { name: "Venue requirements" });
     await user.click(within(venueGroup).getByRole("checkbox", { name: "Other" }));
     await user.type(screen.getByLabelText("Venue requirements: other"), "Near the MRT");
     await user.click(screen.getByRole("button", { name: "Save draft" }));
@@ -595,7 +599,7 @@ describe("EventRequestForm", () => {
     const onSubmitRequest = makeOnSubmitRequest();
     render(<EventRequestForm onSave={onSave} onSubmitRequest={onSubmitRequest} />);
 
-    fill("Event name (required)", "Community workshop");
+    fill("Event name", "Community workshop");
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() => {
@@ -616,7 +620,7 @@ describe("EventRequestForm", () => {
     const onSubmitRequest = makeOnSubmitRequest();
     render(<EventRequestForm onSave={onSave} onSubmitRequest={onSubmitRequest} />);
 
-    fill("Event name (required)", "Community workshop");
+    fill("Event name", "Community workshop");
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
@@ -638,13 +642,13 @@ describe("EventRequestForm", () => {
     );
     render(<EventRequestForm onSave={makeOnSave()} onSubmitRequest={onSubmitRequest} />);
 
-    fill("Description (required)", "  Keep this draft note  ");
+    fill("Description", "  Keep this draft note  ");
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toBe("This request is missing: Event name");
     });
-    expect(inputValue("Description (required)")).toBe("  Keep this draft note  ");
+    expect(inputValue("Description")).toBe("  Keep this draft note  ");
   });
 
   it("leads with the reply body and the editable fields, folding the rest into a collapsed block", () => {
@@ -657,11 +661,11 @@ describe("EventRequestForm", () => {
       />
     );
 
-    expect(screen.getByLabelText("Your reply (required)").closest("details")).toBeNull();
-    expect(screen.getByLabelText("Expected attendance (required)").closest("details")).toBeNull();
+    expect(screen.getByLabelText("Your reply").closest("details")).toBeNull();
+    expect(screen.getByLabelText("Expected attendance").closest("details")).toBeNull();
     expect(screen.getByRole("button", { name: "Save draft" }).closest("details")).toBeNull();
-    expect(screen.getByLabelText("Event name (required)").closest("details")).not.toBeNull();
-    expect(screen.getByLabelText("Purpose (required)").closest("details")).not.toBeNull();
+    expect(screen.getByLabelText("Event name").closest("details")).not.toBeNull();
+    expect(screen.getByLabelText("Purpose").closest("details")).not.toBeNull();
     expect(screen.getByText("Other request details (read-only)")).toBeTruthy();
   });
 
@@ -676,7 +680,7 @@ describe("EventRequestForm", () => {
       />
     );
 
-    fill("Proposed start 1 (required)", "2030-11-18T08:00");
+    fill("Proposed start 1", "2030-11-18T08:00");
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
@@ -700,20 +704,20 @@ describe("EventRequestForm", () => {
     );
     const { rerender } = render(replyForm(initialValues));
 
-    await user.click(screen.getByRole("combobox", { name: "Room-layout preference (required)" }));
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
     await user.click(await screen.findByRole("option", { name: "Boardroom" }));
-    await user.type(screen.getByLabelText("Your reply (required)"), "Please use a boardroom.");
+    await user.type(screen.getByLabelText("Your reply"), "Please use a boardroom.");
 
     rerender(
       replyForm({ ...initialValues, expectedAttendance: 120, roomLayoutPreference: "Classroom" })
     );
 
     // The form owns its values for this mount. The reply and the organiser's own edits survive.
-    expect(inputValue("Expected attendance (required)")).toBe("125");
-    expect(
-      screen.getByRole("combobox", { name: "Room-layout preference (required)" }).textContent
-    ).toContain("Boardroom");
-    expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
+    expect(inputValue("Expected attendance")).toBe("125");
+    expect(screen.getByRole("combobox", { name: "Room-layout preference" }).textContent).toContain(
+      "Boardroom"
+    );
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply").value).toBe(
       "Please use a boardroom."
     );
   });
@@ -726,7 +730,7 @@ describe("EventRequestForm", () => {
     );
     const { rerender } = render(draftForm(initialValues));
 
-    await user.click(screen.getByRole("combobox", { name: "Room-layout preference (required)" }));
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
     await user.click(await screen.findByRole("option", { name: "Boardroom" }));
     rerender(
       draftForm({
@@ -753,10 +757,10 @@ describe("EventRequestForm", () => {
       />
     );
 
-    expect(inputValue("Expected attendance (required)")).toBe("120");
+    expect(inputValue("Expected attendance")).toBe("120");
     expect(inputValue("Room-layout preference: other")).toBe(initialValues.roomLayoutPreference);
     expect(inputValue("Venue requirements: other")).toBe(initialValues.venueRequirements);
-    expect(inputValue("Your reply (required)")).toBe("");
+    expect(inputValue("Your reply")).toBe("");
   });
 
   it("reports through onDirtyChange once a field differs from its mount default", async () => {
@@ -769,16 +773,157 @@ describe("EventRequestForm", () => {
       />
     );
 
-    fill("Event name (required)", "Renamed workshop");
+    fill("Event name", "Renamed workshop");
 
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(true);
     });
 
-    fill("Event name (required)", initialValues.eventName);
+    fill("Event name", initialValues.eventName);
 
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenLastCalledWith(false);
     });
+  });
+
+  it("puts Submit request before Save draft, with Submit as the primary action", () => {
+    render(<EventRequestForm onSave={makeOnSave()} onSubmitRequest={makeOnSubmitRequest()} />);
+
+    const buttons = screen.getAllByRole("button", { name: /Submit request|Save draft/ });
+    expect(buttons.map(button => button.textContent)).toEqual(["Submit request", "Save draft"]);
+    // The primary action keeps the solid treatment; Save draft stays quiet.
+    expect(buttons[0].className).toContain("bg-primary");
+    expect(buttons[1].className).toContain("bg-background");
+  });
+
+  it("shows an error summary above the actions and focuses the first invalid field on submit", async () => {
+    const user = userEvent.setup();
+    render(
+      <EventRequestForm
+        onSave={makeOnSave()}
+        onSubmitRequest={makeOnSubmitRequest()}
+        requireComplete
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Submit request" }));
+
+    const summaryText = await screen.findByText(/problems/);
+    const summary = summaryText.closest('[role="alert"]');
+    expect(summary?.querySelector("a")?.getAttribute("href")).toBe("#eventName");
+    expect(document.activeElement).toBe(screen.getByLabelText("Event name", { exact: true }));
+    expect(screen.getByRole("button", { name: "Submit request" })).toBeTruthy();
+  });
+});
+
+describe("EventRequestForm room-layout preference (PTR-161 AC1, AC6)", () => {
+  const layouts: readonly RoomLayout[] = [
+    ...INITIAL_ROOM_LAYOUTS,
+    { key: "cabaret", label: "Cabaret" },
+  ];
+
+  it("maps a stored value to its maintained label, case-insensitively", () => {
+    expect(layoutOptionForPreference("cabaret", layouts)).toBe("Cabaret");
+    expect(layoutOptionForPreference("  Cabaret  ", layouts)).toBe("Cabaret");
+    expect(layoutOptionForPreference("THEATRE", INITIAL_ROOM_LAYOUTS)).toBe("Theatre");
+    expect(layoutOptionForPreference("Theatre seating", layouts)).toBeNull();
+    expect(layoutOptionForPreference("Stadium", layouts)).toBeNull();
+    expect(layoutOptionForPreference("", layouts)).toBeNull();
+  });
+
+  it("offers the maintained list as the room-layout options", async () => {
+    const user = userEvent.setup();
+    render(<EventRequestForm layouts={layouts} onSave={makeOnSave()} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    expect(await screen.findByRole("option", { name: "Cabaret" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "U-shape" })).toBeNull();
+  });
+
+  it("keeps a stored value outside the production list as free text", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(
+      <EventRequestForm
+        layouts={INITIAL_ROOM_LAYOUTS}
+        initialValues={{ ...initialValues, roomLayoutPreference: "Cabaret" }}
+        onSave={onSave}
+      />
+    );
+
+    // "Cabaret" names no production layout, so the form keeps it as written (AC2).
+    expect(inputValue("Room-layout preference: other")).toBe("Cabaret");
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].roomLayoutPreference).toBe("Cabaret");
+  });
+
+  it("keeps a stored value that names no layout as Other text", () => {
+    render(
+      <EventRequestForm
+        layouts={layouts}
+        initialValues={{ ...initialValues, roomLayoutPreference: "Tables of 6" }}
+        onSave={makeOnSave()}
+      />
+    );
+
+    expect(inputValue("Room-layout preference: other")).toBe("Tables of 6");
+  });
+
+  it("names the free-text item distinctly when the maintained list already offers Other", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm layouts={INITIAL_ROOM_LAYOUTS} onSave={onSave} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    expect(await screen.findByRole("option", { name: "Other" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Other (describe)" })).toBeTruthy();
+
+    await user.click(screen.getByRole("option", { name: "Other (describe)" }));
+    const other = screen.getByLabelText("Room-layout preference: other");
+    expect(other).toBeTruthy();
+    await user.type(other, "Pond");
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].roomLayoutPreference).toBe("Pond");
+  });
+
+  it("stores the listed Other with no description", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm layouts={INITIAL_ROOM_LAYOUTS} onSave={onSave} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    await user.click(await screen.findByRole("option", { name: "Other" }));
+    expect(screen.queryByLabelText("Room-layout preference: other")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].roomLayoutPreference).toBe("Other");
+  });
+
+  it("takes the first free label when Other (describe) is also taken", () => {
+    expect(otherLabelForOptions(["Theatre"])).toBe("Other");
+    expect(otherLabelForOptions(["Theatre", "Other"])).toBe("Other (describe)");
+    expect(otherLabelForOptions(["Other", "Other (describe)"])).toBe("Other (describe) 2");
+    expect(otherLabelForOptions(["Other", "Other (describe)", "Other (describe) 2"])).toBe(
+      "Other (describe) 3"
+    );
+  });
+
+  it("shows no duplicate label when the maintained list already offers Other (describe)", async () => {
+    const user = userEvent.setup();
+    const collidingLayouts: readonly RoomLayout[] = [
+      ...INITIAL_ROOM_LAYOUTS,
+      { key: "other-describe", label: "Other (describe)" },
+    ];
+    render(<EventRequestForm layouts={collidingLayouts} onSave={makeOnSave()} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
+    expect(await screen.findByRole("option", { name: "Other (describe) 2" })).toBeTruthy();
+    expect(screen.getAllByRole("option", { name: "Other (describe)" })).toHaveLength(1);
   });
 });

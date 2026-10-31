@@ -639,7 +639,10 @@ function ChangesBody({ data }: { data: EventPageData }) {
     <div className="space-y-8">
       {processing && <ChangeRequestDecisions request={request} />}
       {processing && !canUpdateEventInformation(request.status) && (
-        <CoordinatorInformationForm request={request} />
+        <CoordinatorInformationForm
+          request={request}
+          layouts={"layouts" in data ? data.layouts : undefined}
+        />
       )}
       {history.changeRequests.length > 0 && (
         <ChangeRequestHistory
@@ -728,12 +731,12 @@ function LeadAssignmentBody({
 
   return (
     <div>
-      <h2 className="display-h3">Assign a Coordinator</h2>
+      <h2 className="display-h3">{reassigning ? "Reassign coordinator" : "Assign coordinator"}</h2>
       <Card className="mt-4 max-w-md">
         <CardContent>
           <dl className="grid gap-4">
             <Record
-              label="Current Coordinator"
+              label="Current coordinator"
               value={
                 request.coordinator ? (
                   <>
@@ -751,6 +754,11 @@ function LeadAssignmentBody({
               }
             />
           </dl>
+          <p className="mt-2 body-sm text-muted-foreground">
+            {reassigning
+              ? `Choosing a coordinator moves this request away from ${request.coordinator?.name ?? "its current coordinator"} at once.`
+              : "Choosing a coordinator assigns this request at once."}
+          </p>
           <form
             noValidate
             className="mt-4 space-y-3"
@@ -799,13 +807,17 @@ function LeadAssignmentBody({
                 </Field>
               )}
             </form.Field>
-            <Button type="submit" disabled={assigning}>
-              {assigning
-                ? "Assigning…"
-                : reassigning
-                  ? "Reassign Coordinator"
-                  : "Assign Coordinator"}
-            </Button>
+            <form.Subscribe selector={state => state.values.coordinatorId}>
+              {coordinatorId => (
+                <Button type="submit" disabled={assigning || coordinatorId === ""}>
+                  {assigning
+                    ? "Assigning…"
+                    : reassigning
+                      ? "Reassign coordinator"
+                      : "Assign coordinator"}
+                </Button>
+              )}
+            </form.Subscribe>
           </form>
           {result.status === "error" && (
             <p role="alert" className="mt-4 body-sm text-destructive">

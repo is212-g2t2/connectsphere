@@ -9,6 +9,7 @@ import {
   CAPACITY_MESSAGE,
   DEFAULT_OPERATING_HOURS,
   DUPLICATE_NAME_MESSAGE,
+  INITIAL_ROOM_LAYOUTS,
 } from "#/features/venues/schema";
 import type { VenueValues } from "#/features/venues/schema";
 
@@ -46,18 +47,18 @@ const harbourHall: Omit<VenueValues, "id"> = {
 
 describe("VenueForm (PTR-26)", () => {
   it("offers every criterion-2 field", () => {
-    render(<VenueForm onSave={saveSpy()} />);
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} onSave={saveSpy()} />);
 
     for (const label of [
       "Venue name",
       "Location",
       "Maximum capacity",
-      "Facilities",
-      "Accessibility features",
+      "Facilities (optional)",
+      "Accessibility features (optional)",
     ]) {
       expect(screen.getByLabelText(label, { exact: true })).not.toBeNull();
     }
-    expect(screen.getByRole("group", { name: "Supported room layouts" })).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Supported room layouts (optional)" })).not.toBeNull();
     expect(screen.getByRole("group", { name: "Operating hours" })).not.toBeNull();
     expect(screen.getByRole("checkbox", { name: "Theatre" })).not.toBeNull();
     expect(screen.getByRole("checkbox", { name: "Monday" })).not.toBeNull();
@@ -67,13 +68,13 @@ describe("VenueForm (PTR-26)", () => {
   it("submits a new venue with the lists split from their comma-separated inputs", async () => {
     const user = userEvent.setup();
     const onSave = saveSpy();
-    render(<VenueForm onSave={onSave} />);
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} onSave={onSave} />);
 
     fill("Venue name", "Seminar Room 2A");
     fill("Location", "Level 2");
     fill("Maximum capacity", "40");
-    fill("Facilities", "Projector, Whiteboard, Projector, ");
-    fill("Accessibility features", "Step-free access");
+    fill("Facilities (optional)", "Projector, Whiteboard, Projector, ");
+    fill("Accessibility features (optional)", "Step-free access");
     await user.click(screen.getByRole("checkbox", { name: "Classroom" }));
     await user.click(screen.getByRole("checkbox", { name: "Boardroom" }));
     await user.click(screen.getByRole("button", { name: "Save venue" }));
@@ -96,13 +97,13 @@ describe("VenueForm (PTR-26)", () => {
   it("starts from the saved record when editing and sends the edited values", async () => {
     const user = userEvent.setup();
     const onSave = saveSpy();
-    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={onSave} />);
 
     expect(valueOf("Venue name")).toBe("Harbour Hall");
     expect(valueOf("Maximum capacity")).toBe("300");
     expect(valueOf("Setup time (minutes)")).toBe("30");
     expect(valueOf("Turnaround time (minutes)")).toBe("45");
-    expect(valueOf("Facilities")).toBe("Stage, Projector");
+    expect(valueOf("Facilities (optional)")).toBe("Stage, Projector");
     expect(isChecked("Theatre")).toBe(true);
     expect(isChecked("Saturday")).toBe(true);
     expect(valueOf("Saturday opens")).toBe("09:00");
@@ -130,7 +131,7 @@ describe("VenueForm (PTR-26)", () => {
   it.each(["", "0", "2.5", "-5"])("refuses the capacity %s before saving", async maxCapacity => {
     const user = userEvent.setup();
     const onSave = saveSpy();
-    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={onSave} />);
 
     fill("Maximum capacity", maxCapacity);
     await user.click(screen.getByRole("button", { name: "Save venue" }));
@@ -147,7 +148,7 @@ describe("VenueForm (PTR-26)", () => {
     async message => {
       const user = userEvent.setup();
       const onSave = saveSpy().mockRejectedValue(new Error(message));
-      render(<VenueForm initial={harbourHall} onSave={onSave} />);
+      render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={onSave} />);
 
       await user.click(screen.getByRole("button", { name: "Save venue" }));
 
@@ -162,7 +163,7 @@ describe("VenueForm (PTR-26)", () => {
   ])("refuses invalid %s and names the field", async (label, message, value) => {
     const user = userEvent.setup();
     const onSave = saveSpy();
-    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={onSave} />);
     fill(label, value);
     await user.click(screen.getByRole("button", { name: "Save venue" }));
     expect(
@@ -175,7 +176,7 @@ describe("VenueForm (PTR-26)", () => {
   it("refuses a cleared buffer field with the same message", async () => {
     const user = userEvent.setup();
     const onSave = saveSpy();
-    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={onSave} />);
     fill("Setup time (minutes)", "");
     await user.click(screen.getByRole("button", { name: "Save venue" }));
     expect(
@@ -184,11 +185,67 @@ describe("VenueForm (PTR-26)", () => {
     expect(screen.getByLabelText("Setup time (minutes)").getAttribute("aria-invalid")).toBe("true");
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("groups the fields into named sections with one legend", () => {
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} onSave={saveSpy()} />);
+
+    for (const name of ["Space", "Operations", "Facilities and access", "Layouts", "Hours"]) {
+      expect(screen.getByRole("region", { name })).toBeTruthy();
+    }
+    expect(screen.getByText("Every field is required unless marked optional.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("shows an error summary above the actions and focuses the first invalid field on submit", async () => {
+    const user = userEvent.setup();
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} onSave={saveSpy()} />);
+
+    fill("Location", "Level 2");
+    await user.click(screen.getByRole("button", { name: "Save venue" }));
+
+    const summaryText = await screen.findByText(/problems/);
+    const summary = summaryText.closest('[role="alert"]');
+    expect(summary?.querySelector("a")?.getAttribute("href")).toBe("#name");
+    expect(document.activeElement).toBe(screen.getByLabelText("Venue name", { exact: true }));
+  });
+
+  it("resets the edits when Cancel is used", async () => {
+    const user = userEvent.setup();
+    render(<VenueForm layouts={INITIAL_ROOM_LAYOUTS} initial={harbourHall} onSave={saveSpy()} />);
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.getAttribute("disabled")).not.toBeNull();
+
+    fill("Maximum capacity", "320");
+    expect(cancel.getAttribute("disabled")).toBeNull();
+    await user.click(cancel);
+
+    expect(valueOf("Maximum capacity")).toBe("300");
+    expect(cancel.getAttribute("disabled")).not.toBeNull();
+  });
+
+  it("reports through onDirtyChange once a field differs from its mount default", async () => {
+    const onDirtyChange = vi.fn<(dirty: boolean) => void>();
+    render(
+      <VenueForm
+        layouts={INITIAL_ROOM_LAYOUTS}
+        initial={harbourHall}
+        onSave={saveSpy()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    fill("Maximum capacity", "320");
+
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenCalledWith(true);
+    });
+  });
 });
 
 describe("VenueDetails (PTR-26 criterion 4, read-only)", () => {
   it("renders every attribute with no editable control", () => {
-    render(<VenueDetails venue={harbourHall} />);
+    render(<VenueDetails venue={harbourHall} layouts={INITIAL_ROOM_LAYOUTS} />);
 
     for (const text of [
       "Level 1, Marina Centre",

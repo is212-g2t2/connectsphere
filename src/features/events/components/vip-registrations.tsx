@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { UserMinus, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -16,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import { IconAction } from "#/components/ui/icon-action";
 import {
   Dialog,
   DialogContent,
@@ -77,8 +78,8 @@ export function AddVipDialog({ eventId }: { eventId: number }) {
     <Dialog>
       <DialogTrigger
         render={
-          <Button size="sm" aria-label="Add VIP">
-            <PlusIcon />
+          <Button size="sm">
+            <UserPlus />
             Add VIP
           </Button>
         }
@@ -328,14 +329,11 @@ export function RemoveVipButton({ eventId, vip }: { eventId: number; vip: VipAtt
     <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <AlertDialogTrigger
         render={
-          <Button
-            size="icon-sm"
-            variant="outline"
+          <IconAction
+            label={`Remove VIP registration: ${vip.name}`}
+            icon={<UserMinus />}
             disabled={removing}
-            aria-label={`Remove VIP registration: ${vip.name}`}
-          >
-            <Trash2Icon />
-          </Button>
+          />
         }
       />
       <AlertDialogContent size="sm">

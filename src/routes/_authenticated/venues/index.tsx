@@ -4,7 +4,7 @@ import { can } from "#/features/auth/permissions";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { VenueListPageSkeleton } from "#/features/venues/components/venue-list-page-skeleton";
 import { parseVenueSearch } from "#/features/venues/schema";
-import { listVenues, searchVenues } from "#/features/venues/server-fns";
+import { listRoomLayouts, listVenues, searchVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/")({
@@ -21,11 +21,13 @@ export const Route = createFileRoute("/_authenticated/venues/")({
       return searchVenues({ data: deps });
     }
 
+    const [venues, layouts] = await Promise.all([listVenues(), listRoomLayouts()]);
     return {
       event: null,
       filters: {},
-      venues: await listVenues(),
+      venues,
       unsuitable: [],
+      layouts,
     };
   },
   component: () => (

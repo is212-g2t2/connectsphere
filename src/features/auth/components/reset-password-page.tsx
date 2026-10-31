@@ -1,5 +1,4 @@
-import { Page } from "#/components/layout/page";
-import { Card, CardContent } from "#/components/ui/card";
+import { AuthShell } from "#/features/auth/components/auth-shell";
 import { ResetPasswordForm } from "#/features/auth/components/reset-password-form";
 
 /**
@@ -8,12 +7,8 @@ import { ResetPasswordForm } from "#/features/auth/components/reset-password-for
  */
 export function ResetPasswordPage({ token, error }: { token?: string; error?: string }) {
   return (
-    <Page width="page">
-      <Card size="auth" className="mx-auto w-full max-w-[400px]">
-        <CardContent>
-          <ResetPasswordForm token={token} error={error} />
-        </CardContent>
-      </Card>
-    </Page>
+    <AuthShell>
+      <ResetPasswordForm token={token} error={error} />
+    </AuthShell>
   );
 }

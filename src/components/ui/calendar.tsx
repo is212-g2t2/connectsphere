@@ -11,7 +11,9 @@ function Calendar({
   showOutsideDays = true,
   captionLayout = "label",
   buttonVariant = "ghost",
-  locale,
+  // Pin the locale so month names, weekday names and `data-day` render the same on the
+  // server and the client. Never import `date-fns/locale`; it is not a declared dependency.
+  locale = { code: "en-GB" },
   formatters,
   components,
   ...props
@@ -32,7 +34,8 @@ function Calendar({
       captionLayout={captionLayout}
       locale={locale}
       formatters={{
-        formatMonthDropdown: date => date.toLocaleString(locale?.code, { month: "short" }),
+        formatMonthDropdown: (date, dateLib) =>
+          date.toLocaleString(dateLib?.options?.locale?.code ?? "en-GB", { month: "short" }),
         ...formatters,
       }}
       classNames={{
@@ -90,16 +93,16 @@ function Calendar({
           defaultClassNames.day
         ),
         range_start: cn(
-          "relative isolate z-0 rounded-l-(--cell-radius) bg-muted after:absolute after:inset-y-0 after:right-0 after:w-4 after:bg-muted",
+          "relative isolate z-0 rounded-l-(--cell-radius) ring-1 ring-inset ring-ring",
           defaultClassNames.range_start
         ),
         range_middle: cn("rounded-none", defaultClassNames.range_middle),
         range_end: cn(
-          "relative isolate z-0 rounded-r-(--cell-radius) bg-muted after:absolute after:inset-y-0 after:left-0 after:w-4 after:bg-muted",
+          "relative isolate z-0 rounded-r-(--cell-radius) ring-1 ring-inset ring-ring",
           defaultClassNames.range_end
         ),
         today: cn(
-          "rounded-(--cell-radius) bg-muted text-foreground data-[selected=true]:rounded-none",
+          "rounded-(--cell-radius) text-foreground ring-1 ring-inset ring-ring data-[selected=true]:rounded-none",
           defaultClassNames.today
         ),
         outside: cn(
@@ -146,7 +149,9 @@ function CalendarDayButton({
   className,
   day,
   modifiers,
-  locale,
+  // Default to en-GB so `data-day` matches the `Calendar` default when a caller overrides
+  // `DayButton` without forwarding the locale.
+  locale = { code: "en-GB" },
   ...props
 }: React.ComponentProps<typeof DayButton> & { locale?: Partial<Locale> }) {
   const defaultClassNames = getDefaultClassNames();
@@ -171,7 +176,11 @@ function CalendarDayButton({
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
       className={cn(
-        "relative isolate z-10 flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-2 group-data-[focused=true]/day:ring-ring data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
+        // A closed venue day reads muted and struck. A day with a buffer conflict reads
+        // outlined, apart from the filled dots that mark occupied days.
+        modifiers.closed && "text-muted-foreground line-through",
+        modifiers.bufferConflict && "ring-1 ring-inset ring-coral",
+        "relative isolate z-10 flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-2 group-data-[focused=true]/day:ring-ring data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:bg-transparent data-[range-end=true]:text-foreground data-[range-end=true]:ring-1 data-[range-end=true]:ring-inset data-[range-end=true]:ring-primary data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:bg-transparent data-[range-start=true]:text-foreground data-[range-start=true]:ring-1 data-[range-start=true]:ring-inset data-[range-start=true]:ring-primary data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
         defaultClassNames.day,
         className
       )}

@@ -12,6 +12,7 @@ import {
   layoutLabel,
   parseLayouts,
 } from "#/features/venues/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 
 /**
  * Routes and the form import this module. Keep it free of `#/db/schema` and other server-only dependencies.
@@ -115,21 +116,37 @@ const RequirementText = z
 
 /**
  * PTR-138 AC1: the optional session requirements of a new request. An absent key takes the
- * event's requirement. Blank text states no requirement. A layout must name a supported layout,
- * as the search requires, so a typo cannot fail every venue.
+ * event's requirement. Blank text states no requirement. PTR-161: check only the text shape
+ * here. The request handler refuses a layout that names no maintained layout with
+ * `LAYOUT_MESSAGE`, so a new layout type works without a code change.
  */
 const SessionRequirementShape = {
   expectedAttendance: z
     .int32({ error: VENUE_SEARCH_ATTENDANCE_MESSAGE })
     .positive(VENUE_SEARCH_ATTENDANCE_MESSAGE)
     .optional(),
-  layout: RequirementText.refine(
-    value => value === "" || parseLayouts(value).length > 0,
-    LAYOUT_MESSAGE
-  ).optional(),
+  layout: RequirementText.optional(),
   accessibilityRequirements: RequirementText.optional(),
   requiredFacilities: RequirementText.optional(),
 };
+
+/**
+ * Build the session requirement shape for the maintained list. Forms call this with their
+ * loader list so a typo fails in the form with the same words the handler uses.
+ */
+export function createSessionRequirementShape(
+  layouts: readonly Pick<RoomLayout, "key" | "label">[]
+) {
+  return {
+    expectedAttendance: SessionRequirementShape.expectedAttendance,
+    layout: RequirementText.refine(
+      value => value === "" || parseLayouts(value, layouts).length > 0,
+      LAYOUT_MESSAGE
+    ).optional(),
+    accessibilityRequirements: SessionRequirementShape.accessibilityRequirements,
+    requiredFacilities: SessionRequirementShape.requiredFacilities,
+  };
+}
 
 /**
  * Validate an id as text, not as a UUID. The column and seed fixture use text ids, so a UUID check
@@ -172,6 +189,24 @@ export const VenueRequestInput = z
 
 export type VenueRequestValues = z.infer<typeof VenueRequestInput>;
 
+/** Build the request validator for the maintained list, so a typo fails in the form. */
+export function createVenueRequestInput(layouts: readonly Pick<RoomLayout, "key" | "label">[]) {
+  return z
+    .object({
+      eventId: EventId,
+      venueId: VenueId,
+      date: z.iso.date({ error: VENUE_REQUEST_DATE_MESSAGE }),
+      startTime: Time,
+      endTime: Time,
+      ...createSessionRequirementShape(layouts),
+      replacesRequestId: VenueRequestIdInput.shape.id.optional(),
+    })
+    .refine(value => `${value.date}T${value.endTime}` > `${value.date}T${value.startTime}`, {
+      path: ["endTime"],
+      message: VENUE_REQUEST_TIME_ORDER_MESSAGE,
+    });
+}
+
 /** The session requirements a request or a hold conversion may state. */
 export type SessionRequirementInput = Pick<
   VenueRequestValues,
@@ -204,7 +239,7 @@ export const SESSION_REQUIREMENT_INPUTS: readonly {
   placeholder?: string;
 }[] = [
   { name: "expectedAttendance", label: "Expected attendance", type: "number" },
-  { name: "layout", label: "Layout", type: "text", placeholder: "Theatre, classroom, banquet…" },
+  { name: "layout", label: "Layout", type: "text", placeholder: "Layout the session needs" },
   {
     name: "accessibilityRequirements",
     label: "Accessibility",
@@ -253,14 +288,15 @@ export function sessionRequirementInput(
  * attendees, Boardroom". Return "" when the session states neither.
  */
 export function formatSessionSummary(
-  requirements: Pick<SessionRequirements, "expectedAttendance" | "layout">
+  requirements: Pick<SessionRequirements, "expectedAttendance" | "layout">,
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[]
 ): string {
   const parts: string[] = [];
   const attendance = requirements.expectedAttendance;
   if (attendance !== null)
     parts.push(`${attendance} ${attendance === 1 ? "attendee" : "attendees"}`);
   const layout = requirements.layout.trim();
-  if (layout) parts.push(layoutLabel(layout));
+  if (layout) parts.push(layouts ? layoutLabel(layout, layouts) : layoutLabel(layout));
   return parts.join(", ");
 }
 
@@ -279,6 +315,16 @@ export const VenueHoldConversionInput = z.object(
 );
 
 export type VenueHoldConversion = z.infer<typeof VenueHoldConversionInput>;
+
+/** Build the hold-conversion validator for the maintained list, as for a new request. */
+export function createVenueHoldConversionInput(
+  layouts: readonly Pick<RoomLayout, "key" | "label">[]
+) {
+  return z.object(
+    { id: VenueRequestIdInput.shape.id, ...createSessionRequirementShape(layouts) },
+    { error: VENUE_REQUEST_ID_MESSAGE }
+  );
+}
 
 export function parseVenueHoldConversion(data: unknown): VenueHoldConversion {
   const parsed = VenueHoldConversionInput.safeParse(data);

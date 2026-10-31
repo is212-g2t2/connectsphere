@@ -91,11 +91,11 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await waitForHydration(page);
 
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
-    await expect(page.getByLabel("Date (required)", { exact: true })).toHaveValue("2027-05-10");
-    await expect(page.getByLabel("Start time (required)", { exact: true })).toHaveValue("09:00");
-    await expect(page.getByLabel("End time (required)", { exact: true })).toHaveValue("17:00");
+    await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-05-10");
+    await expect(page.getByLabel("Start time", { exact: true })).toHaveValue("09:00");
+    await expect(page.getByLabel("End time", { exact: true })).toHaveValue("17:00");
 
-    await page.getByLabel("End time (required)", { exact: true }).fill("15:30");
+    await page.getByLabel("End time", { exact: true }).fill("15:30");
     await page.getByRole("button", { name: "Send booking request" }).click();
 
     // The panel reads loader data, so the pending request joins the list above the form. Focus
@@ -195,15 +195,15 @@ test("[PTR-138] a Coordinator requests a second venue for the same event and the
 
     await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
     await waitForHydration(page);
-    await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
+    await page.getByLabel("End time", { exact: true }).fill("12:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
     await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
 
     await page.goto(`/venues/${secondVenue.id}?eventId=${fixture.eventId}`);
     await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
-    await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
-    await page.getByLabel("End time (required)", { exact: true }).fill("15:00");
+    await page.getByLabel("Start time", { exact: true }).fill("13:00");
+    await page.getByLabel("End time", { exact: true }).fill("15:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
     await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
 
@@ -251,22 +251,22 @@ test("[PTR-138] a Coordinator requests two sessions at one venue and an overlapp
 
     await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
     await waitForHydration(page);
-    await page.getByLabel("End time (required)", { exact: true }).fill("11:00");
+    await page.getByLabel("End time", { exact: true }).fill("11:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
     const list = page.getByRole("list", { name: `Requests for ${fixture.eventName}` });
     await expect(list.getByRole("listitem")).toHaveCount(1);
 
     // The form stays open below the list for the second session.
     await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
-    await page.getByLabel("Start time (required)", { exact: true }).fill("14:00");
-    await page.getByLabel("End time (required)", { exact: true }).fill("16:00");
+    await page.getByLabel("Start time", { exact: true }).fill("14:00");
+    await page.getByLabel("End time", { exact: true }).fill("16:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
     await expect(list.getByRole("listitem")).toHaveCount(2);
     await expect(list.getByRole("listitem").nth(0)).toContainText("10 May 2027, 09:00 – 11:00");
     await expect(list.getByRole("listitem").nth(1)).toContainText("10 May 2027, 14:00 – 16:00");
 
-    await page.getByLabel("Start time (required)", { exact: true }).fill("10:30");
-    await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
+    await page.getByLabel("Start time", { exact: true }).fill("10:30");
+    await page.getByLabel("End time", { exact: true }).fill("12:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
     const panel = page.getByRole("region", { name: `Requests for ${fixture.eventName}` });
     await expect(panel.getByRole("alert")).toHaveText(
@@ -358,12 +358,12 @@ test("[PTR-138] a Coordinator finds a breakout room in search and requests it fo
 
     // The room cannot hold the event's 120 attendees, so search offers it no request.
     const unsuitable = page.getByRole("region", { name: "Not suitable" });
-    await expect(unsuitable.getByRole("row", { name: new RegExp(roomName) })).toContainText(
-      "Holds 40; 120 needed"
-    );
+    await unsuitable.locator("summary").click();
+    await expect(unsuitable.getByText(roomName)).toBeVisible();
+    await expect(unsuitable.getByText("Holds 40; 120 needed").first()).toBeVisible();
 
-    await page.getByLabel("Expected attendance", { exact: true }).fill("30");
-    await page.getByLabel("Location", { exact: true }).fill(location);
+    await page.getByLabel("Expected attendance (optional)", { exact: true }).fill("30");
+    await page.getByLabel("Location (optional)", { exact: true }).fill(location);
     await page.getByRole("button", { name: "Search venues", exact: true }).click();
     const results = page.getByRole("region", { name: "Venue results" });
     await results.getByRole("link", { name: roomName, exact: true }).click();
@@ -371,13 +371,13 @@ test("[PTR-138] a Coordinator finds a breakout room in search and requests it fo
 
     // The form starts from the search: its window and the smaller session.
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
-    await expect(page.getByLabel("Date (required)", { exact: true })).toHaveValue("2027-05-10");
+    await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-05-10");
     await expect(page.getByLabel("Expected attendance", { exact: true })).toHaveValue("30");
     await expect(page.getByLabel("Layout", { exact: true })).toHaveValue("Theatre seating");
     await expect(page.getByLabel("Facilities", { exact: true })).toHaveValue("Projector");
 
-    await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
-    await page.getByLabel("End time (required)", { exact: true }).fill("14:30");
+    await page.getByLabel("Start time", { exact: true }).fill("13:00");
+    await page.getByLabel("End time", { exact: true }).fill("14:30");
     await page.getByLabel("Expected attendance", { exact: true }).fill("25");
     await page.getByRole("button", { name: "Send booking request" }).click();
 

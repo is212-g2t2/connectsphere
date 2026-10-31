@@ -2,13 +2,13 @@ import { Suspense, lazy } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
-import { Page } from "#/components/layout/page";
+import { Page, PageHeader } from "#/components/layout/page";
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatLocalDate } from "#/features/event-requests/format";
 import { AttendeeEventPage } from "#/features/events/components/attendee-event-page";
-import { eventTitle } from "#/features/events/components/event-card";
+import { eventTitle } from "#/features/events/components/event-title";
 import type { EventPageData } from "#/features/events/page-data";
 import { safetyReviewStageLabel } from "#/features/safety-reviews/schema";
 import type { SafetyReviewStage } from "#/features/safety-reviews/schema";
@@ -56,45 +56,50 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
 
   return (
     <Page width="wide">
-      <Link to={access === "lead" ? "/coordination" : "/dashboard"} className={NAV_LINK_CLASSNAME}>
-        {access === "lead" ? "Back to coordination" : "Back to dashboard"}
-      </Link>
-
-      <div className="mt-6">
-        <p className="eyebrow text-muted-foreground">{access.replaceAll("_", " ")} access</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {stageLabel ? (
+      <PageHeader
+        back={
+          <Link
+            to={access === "lead" ? "/coordination" : "/dashboard"}
+            className={NAV_LINK_CLASSNAME}
+          >
+            {access === "lead" ? "Back to coordination" : "Back to dashboard"}
+          </Link>
+        }
+        title={title}
+        description={
+          <>
+            {event.description}
+            {event.eventDate || (event.startTime && event.endTime) ? (
+              <span className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+                {event.eventDate ? (
+                  <span className="flex items-center gap-2">
+                    <CalendarDays className="size-4" aria-hidden="true" />
+                    {formatLocalDate(event.eventDate)}
+                  </span>
+                ) : null}
+                {event.startTime && event.endTime ? (
+                  <span className="flex items-center gap-2">
+                    <Clock3 className="size-4" aria-hidden="true" />
+                    {event.startTime}–{event.endTime}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            {(access === "organiser" || access === "coordinator") && event.venue ? (
+              <span className="mt-3 block font-medium text-foreground">{event.venue.name}</span>
+            ) : null}
+          </>
+        }
+        actions={
+          stageLabel ? (
             <Badge variant={stageVariant(event.safetyStage)} aria-label={`Stage: ${stageLabel}`}>
               {stageLabel}
             </Badge>
           ) : (
             <EventRequestStatusBadge status={event.status} />
-          )}
-        </div>
-        <h1 className="mt-3 font-semibold event-title">{title}</h1>
-        {event.description ? (
-          <p className="mt-4 body-sm text-muted-foreground">{event.description}</p>
-        ) : null}
-
-        <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 body-sm text-muted-foreground">
-          {event.eventDate ? (
-            <span className="flex items-center gap-2">
-              <CalendarDays className="size-4" />
-              {formatLocalDate(event.eventDate)}
-            </span>
-          ) : null}
-          {event.startTime && event.endTime ? (
-            <span className="flex items-center gap-2">
-              <Clock3 className="size-4" />
-              {event.startTime}–{event.endTime}
-            </span>
-          ) : null}
-        </div>
-
-        {(access === "organiser" || access === "coordinator") && event.venue ? (
-          <p className="mt-4 body-sm font-medium">{event.venue.name}</p>
-        ) : null}
-      </div>
+          )
+        }
+      />
 
       <div className="mt-6">
         <Suspense fallback={<EventSectionsFallback />}>

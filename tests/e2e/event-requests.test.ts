@@ -35,7 +35,7 @@ async function openNewRequest(page: Page): Promise<void> {
 /** Create a fresh organiser draft from the list. Return to the list. */
 async function draftFromList(page: Page, name: string): Promise<void> {
   await openNewRequest(page);
-  await page.getByLabel("Event name (required)", { exact: true }).fill(name);
+  await page.getByLabel("Event name", { exact: true }).fill(name);
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByText("Draft saved.")).toBeVisible();
   await page.getByRole("link", { name: "Back to event requests" }).click();
@@ -53,36 +53,32 @@ test.describe("Event request drafts", () => {
   test("lets an event organiser capture the full requirements and save", async ({ page }) => {
     await openNewRequest(page);
 
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
-    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year with members");
-    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("25");
-    await page.getByLabel("Description (required)", { exact: true }).fill("Bring your own lunch");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Purpose", { exact: true }).fill("Plan the year with members");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("25");
+    await page.getByLabel("Description", { exact: true }).fill("Bring your own lunch");
     await chooseSelectValue(page, "Type of event (optional)", "Workshop");
-    await chooseGroupValue(page, "Venue requirements (required)", "Ground floor, near MRT");
-    await chooseSelectValue(page, "Room-layout preference (required)", "U-shape");
-    await chooseGroupValue(page, "Accessibility requirements (required)", "Step-free access");
+    await chooseGroupValue(page, "Venue requirements", "Ground floor, near MRT");
+    await chooseSelectValue(page, "Room-layout preference", "Theatre");
+    await chooseGroupValue(page, "Accessibility requirements", "Step-free access");
     await page
       .getByLabel("Special arrangements (optional)", { exact: true })
       .fill("Quiet room available");
 
-    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-11-18T09:30");
-    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-11-18T12:45");
+    await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-11-18T09:30");
+    await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-11-18T12:45");
     await page.getByRole("button", { name: "Add proposed date" }).click();
-    await page.getByLabel("Proposed start 2 (required)", { exact: true }).fill("2030-11-20T14:15");
-    await page.getByLabel("Proposed end 2 (required)", { exact: true }).fill("2030-11-20T17:30");
+    await page.getByLabel("Proposed start 2", { exact: true }).fill("2030-11-20T14:15");
+    await page.getByLabel("Proposed end 2", { exact: true }).fill("2030-11-20T17:30");
 
     await page.getByRole("button", { name: "Add equipment" }).click();
     await page.getByLabel("Equipment type 1", { exact: true }).fill("Wireless microphone");
     await page.getByLabel("Quantity 1", { exact: true }).fill("2");
 
     await page.getByRole("checkbox", { name: "Require attendee registration" }).click();
-    await page.getByLabel("Registration capacity (required)", { exact: true }).fill("30");
-    await page
-      .getByLabel("Registration opens (required)", { exact: true })
-      .fill("2030-11-01T09:00");
-    await page
-      .getByLabel("Registration closes (required)", { exact: true })
-      .fill("2030-11-08T17:00");
+    await page.getByLabel("Registration capacity", { exact: true }).fill("30");
+    await page.getByLabel("Registration opens", { exact: true }).fill("2030-11-01T09:00");
+    await page.getByLabel("Registration closes", { exact: true }).fill("2030-11-08T17:00");
 
     await page.getByRole("button", { name: "Save draft" }).click();
 
@@ -92,22 +88,27 @@ test.describe("Event request drafts", () => {
   test("refuses an enabled registration missing its terms, naming each", async ({ page }) => {
     await openNewRequest(page);
 
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
     await page.getByRole("checkbox", { name: "Require attendee registration" }).click();
     await page.getByRole("button", { name: "Save draft" }).click();
 
     await expect(
-      page.getByText("Registration capacity is required when registration is enabled")
+      page
+        .getByRole("alert")
+        .getByText("Registration capacity is required when registration is enabled")
+        .first()
     ).toBeVisible();
     await expect(
-      page.getByText(
-        "A registration opening date and time is required when registration is enabled"
-      )
+      page
+        .getByRole("alert")
+        .getByText("A registration opening date and time is required when registration is enabled")
+        .first()
     ).toBeVisible();
     await expect(
-      page.getByText(
-        "A registration closing date and time is required when registration is enabled"
-      )
+      page
+        .getByRole("alert")
+        .getByText("A registration closing date and time is required when registration is enabled")
+        .first()
     ).toBeVisible();
     await expect(page.getByText("Draft saved.")).toHaveCount(0);
   });
@@ -118,7 +119,7 @@ test.describe("Event request drafts", () => {
   }) => {
     await openNewRequest(page);
 
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
 
@@ -142,12 +143,17 @@ test.describe("Event request drafts", () => {
   test("refuses an end date that is not later than its start", async ({ page }) => {
     await openNewRequest(page);
 
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
-    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-11-18T09:30");
-    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-11-18T09:30");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-11-18T09:30");
+    await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-11-18T09:30");
     await page.getByRole("button", { name: "Save draft" }).click();
 
-    await expect(page.getByText(/later than the start/)).toBeVisible();
+    await expect(
+      page
+        .getByRole("alert")
+        .getByText(/later than the start/)
+        .first()
+    ).toBeVisible();
   });
 
   test("refuses an attendee the page and the dashboard link", async ({ page }) => {
@@ -173,15 +179,15 @@ test.describe("Event request submission (PTR-13)", () => {
   test("submits a complete request and confirms it", async ({ page }) => {
     await openNewRequest(page);
 
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
-    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year with members");
-    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("25");
-    await page.getByLabel("Description (required)", { exact: true }).fill("Bring your own lunch");
-    await chooseGroupValue(page, "Venue requirements (required)", "Ground floor, near MRT");
-    await chooseSelectValue(page, "Room-layout preference (required)", "U-shape");
-    await chooseGroupValue(page, "Accessibility requirements (required)", "Step-free access");
-    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-11-18T09:30");
-    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-11-18T12:45");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Purpose", { exact: true }).fill("Plan the year with members");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("25");
+    await page.getByLabel("Description", { exact: true }).fill("Bring your own lunch");
+    await chooseGroupValue(page, "Venue requirements", "Ground floor, near MRT");
+    await chooseSelectValue(page, "Room-layout preference", "Theatre");
+    await chooseGroupValue(page, "Accessibility requirements", "Step-free access");
+    await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-11-18T09:30");
+    await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-11-18T12:45");
 
     await page.getByRole("button", { name: "Submit request" }).click();
 
@@ -211,7 +217,7 @@ test.describe("Event request list (PTR-14)", () => {
     await openNewRequest(page);
 
     // One draft, saved incomplete.
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
 
@@ -220,15 +226,15 @@ test.describe("Event request list (PTR-14)", () => {
     await page.getByRole("link", { name: "New request" }).click();
     await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
     await waitForHydration(page);
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Annual dinner");
-    await page.getByLabel("Purpose (required)", { exact: true }).fill("Thank the volunteers");
-    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("120");
-    await page.getByLabel("Description (required)", { exact: true }).fill("Dinner and awards");
-    await chooseGroupValue(page, "Venue requirements (required)", "Banquet hall");
-    await chooseSelectValue(page, "Room-layout preference (required)", "Banquet");
-    await chooseGroupValue(page, "Accessibility requirements (required)", "None");
-    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T18:00");
-    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T22:00");
+    await page.getByLabel("Event name", { exact: true }).fill("Annual dinner");
+    await page.getByLabel("Purpose", { exact: true }).fill("Thank the volunteers");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("120");
+    await page.getByLabel("Description", { exact: true }).fill("Dinner and awards");
+    await chooseGroupValue(page, "Venue requirements", "Banquet hall");
+    await chooseSelectValue(page, "Room-layout preference", "Banquet");
+    await chooseGroupValue(page, "Accessibility requirements", "None");
+    await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-12-01T18:00");
+    await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-12-01T22:00");
     await page.getByRole("button", { name: "Submit request" }).click();
     await expect(page.getByText("Request submitted.")).toBeVisible();
 
@@ -247,6 +253,7 @@ test.describe("Event request list (PTR-14)", () => {
     // A submitted request opens on the universal event page. It uses no detail route.
     await expect(page).toHaveURL(/\/events\/\d+/);
     await expect(page.getByRole("heading", { name: "Annual dinner" })).toBeVisible();
+    await page.getByText("Show details").first().click();
     await expect(page.getByText("Thank the volunteers")).toBeVisible();
     await expect(page.getByText("1 Dec 2030, 18:00 – 22:00")).toBeVisible();
     await expect(page.getByLabel("Status: Submitted")).toBeVisible();
@@ -255,7 +262,7 @@ test.describe("Event request list (PTR-14)", () => {
 
   test("answers not found for another organiser's request", async ({ page }) => {
     await openNewRequest(page);
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Mine");
+    await page.getByLabel("Event name", { exact: true }).fill("Mine");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
     await page.getByRole("link", { name: "Back to event requests" }).click();
@@ -287,13 +294,9 @@ test.describe("Event request resume and delete (PTR-12)", () => {
     await row.getByRole("link", { name: "Resume" }).click();
 
     await expect(page.getByRole("heading", { name: "Edit event request" })).toBeVisible();
-    await expect(page.getByLabel("Event name (required)", { exact: true })).toHaveValue(
-      "Community workshop"
-    );
+    await expect(page.getByLabel("Event name", { exact: true })).toHaveValue("Community workshop");
 
-    await page
-      .getByLabel("Event name (required)", { exact: true })
-      .fill("Community workshop, resumed");
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop, resumed");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
 
@@ -328,15 +331,15 @@ test.describe("Event request resume and delete (PTR-12)", () => {
 test.describe("Coordinator assignment (PTR-144)", () => {
   test("leaves a fresh submission unassigned on the list and detail", async ({ page }) => {
     await openNewRequest(page);
-    await page.getByLabel("Event name (required)", { exact: true }).fill("Board retreat");
-    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
-    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("12");
-    await page.getByLabel("Description (required)", { exact: true }).fill("Board planning retreat");
-    await chooseGroupValue(page, "Venue requirements (required)", "Boardroom with projector");
-    await chooseSelectValue(page, "Room-layout preference (required)", "Boardroom");
-    await chooseGroupValue(page, "Accessibility requirements (required)", "None");
-    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T09:00");
-    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T17:00");
+    await page.getByLabel("Event name", { exact: true }).fill("Board retreat");
+    await page.getByLabel("Purpose", { exact: true }).fill("Plan the year");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("12");
+    await page.getByLabel("Description", { exact: true }).fill("Board planning retreat");
+    await chooseGroupValue(page, "Venue requirements", "Boardroom with projector");
+    await chooseSelectValue(page, "Room-layout preference", "Boardroom");
+    await chooseGroupValue(page, "Accessibility requirements", "None");
+    await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-12-01T09:00");
+    await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-12-01T17:00");
     await page.getByRole("button", { name: "Submit request" }).click();
     await expect(page.getByText("Request submitted.")).toBeVisible();
 
@@ -359,15 +362,15 @@ test.describe("Coordinator assignment (PTR-144)", () => {
   }) => {
     await openNewRequest(page);
     const eventName = `Queue visibility ${randomUUID()}`;
-    await page.getByLabel("Event name (required)", { exact: true }).fill(eventName);
-    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
-    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("12");
-    await page.getByLabel("Description (required)", { exact: true }).fill("Planning session");
-    await chooseGroupValue(page, "Venue requirements (required)", "Meeting room");
-    await chooseSelectValue(page, "Room-layout preference (required)", "Classroom");
-    await chooseGroupValue(page, "Accessibility requirements (required)", "None");
-    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T09:00");
-    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T17:00");
+    await page.getByLabel("Event name", { exact: true }).fill(eventName);
+    await page.getByLabel("Purpose", { exact: true }).fill("Plan the year");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("12");
+    await page.getByLabel("Description", { exact: true }).fill("Planning session");
+    await chooseGroupValue(page, "Venue requirements", "Meeting room");
+    await chooseSelectValue(page, "Room-layout preference", "Classroom");
+    await chooseGroupValue(page, "Accessibility requirements", "None");
+    await page.getByLabel("Proposed start 1", { exact: true }).fill("2030-12-01T09:00");
+    await page.getByLabel("Proposed end 1", { exact: true }).fill("2030-12-01T17:00");
     await page.getByRole("button", { name: "Submit request" }).click();
     await expect(page.getByText("Request submitted.")).toBeVisible();
 

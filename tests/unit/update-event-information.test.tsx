@@ -138,11 +138,9 @@ describe("updating event information (PTR-22)", () => {
     const toggle = screen.getByRole("button", { name: "Cancel editing" });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
 
-    const name = screen.getByLabelText<HTMLInputElement>("Event name (required)");
+    const name = screen.getByLabelText<HTMLInputElement>("Event name");
     expect(name.value).toBe("Annual Gala");
-    expect(screen.getByLabelText<HTMLInputElement>("Expected attendance (required)").value).toBe(
-      "100"
-    );
+    expect(screen.getByLabelText<HTMLInputElement>("Expected attendance").value).toBe("100");
     await user.clear(name);
     await user.type(name, "Annual Gala Dinner");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
@@ -165,17 +163,17 @@ describe("updating event information (PTR-22)", () => {
     invalidate.mockReturnValue(reload.promise);
     const user = await openForm();
 
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
-    expect(screen.getByLabelText("Purpose (required)")).toBeTruthy();
+    expect(screen.getByLabelText("Purpose")).toBeTruthy();
     // Wait for the reload before reopening; it may show that this save closed the form.
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
       true
     );
     reload.resolve();
-    await waitFor(() => expect(screen.queryByLabelText("Purpose (required)")).toBeNull());
+    await waitFor(() => expect(screen.queryByLabelText("Purpose")).toBeNull());
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Edit event information" }).disabled
     ).toBe(false);
@@ -189,7 +187,7 @@ describe("updating event information (PTR-22)", () => {
     });
     await user.click(screen.getByRole("button", { name: "Edit event information" }));
 
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
     // Another panel's action reloads the record. Read the changed name from the second tab and
     // keep the same dates and equipment.
     rerender(
@@ -215,14 +213,14 @@ describe("updating event information (PTR-22)", () => {
     invalidate.mockRejectedValue(new Error("offline"));
     const user = await openForm();
 
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() =>
       expect(warning).toHaveBeenCalledWith("The change was saved. Refresh this page to see it.")
     );
     expect(success).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
+    expect(screen.queryByLabelText("Purpose")).toBeNull();
   });
 
   it("says so when the save changed nothing", async () => {
@@ -278,7 +276,7 @@ describe("updating event information (PTR-22)", () => {
   it("refuses a cleared required field at its control without calling the server", async () => {
     const user = await openForm();
 
-    await user.clear(screen.getByLabelText("Expected attendance (required)"));
+    await user.clear(screen.getByLabelText("Expected attendance"));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Expected attendance is required")).toBeTruthy();
@@ -290,14 +288,14 @@ describe("updating event information (PTR-22)", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel editing" }));
 
-    expect(screen.queryByLabelText("Event name (required)")).toBeNull();
+    expect(screen.queryByLabelText("Event name")).toBeNull();
     expect(updateEventInformation).not.toHaveBeenCalled();
   });
 
   it("confirms before discarding edits on cancel", async () => {
     const user = await openForm();
 
-    await user.type(screen.getByLabelText("Event name (required)"), " Dinner");
+    await user.type(screen.getByLabelText("Event name"), " Dinner");
     await user.click(screen.getByRole("button", { name: "Cancel editing" }));
 
     expect(screen.getByRole("alertdialog")).toBeTruthy();
@@ -305,13 +303,13 @@ describe("updating event information (PTR-22)", () => {
     await user.click(screen.getByRole("button", { name: "Keep editing" }));
 
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    const name = screen.getByLabelText<HTMLInputElement>("Event name (required)");
+    const name = screen.getByLabelText<HTMLInputElement>("Event name");
     expect(name).toBeTruthy();
     expect(name.value).toBe("Annual Gala Dinner");
     await user.click(screen.getByRole("button", { name: "Cancel editing" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
 
-    await waitFor(() => expect(screen.queryByLabelText("Event name (required)")).toBeNull());
+    await waitFor(() => expect(screen.queryByLabelText("Event name")).toBeNull());
     expect(updateEventInformation).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Edit event information" })
@@ -322,7 +320,7 @@ describe("updating event information (PTR-22)", () => {
 /** Opens the form and submits a changed expected attendance, a significant field. */
 async function editAttendance() {
   const user = await openForm();
-  const attendance = screen.getByLabelText("Expected attendance (required)");
+  const attendance = screen.getByLabelText("Expected attendance");
   await user.clear(attendance);
   await user.type(attendance, "150");
   await user.click(screen.getByRole("button", { name: "Save changes" }));
@@ -408,7 +406,7 @@ describe("warning before a significant change (PTR-23)", () => {
     updateEventInformation.mockResolvedValue(saved(["roomLayoutPreference"]));
     const user = await openForm();
 
-    await user.click(screen.getByRole("combobox", { name: "Room-layout preference (required)" }));
+    await user.click(screen.getByRole("combobox", { name: "Room-layout preference" }));
     await user.click(await screen.findByRole("option", { name: "Boardroom" }));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -451,9 +449,7 @@ describe("warning before a significant change (PTR-23)", () => {
       await waitFor(() =>
         expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
       );
-      expect(screen.getByLabelText<HTMLInputElement>("Expected attendance (required)").value).toBe(
-        "150"
-      );
+      expect(screen.getByLabelText<HTMLInputElement>("Expected attendance").value).toBe("150");
       expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save changes" }).disabled).toBe(
         false
       );
@@ -481,7 +477,7 @@ describe("warning before a significant change (PTR-23)", () => {
     updateEventInformation.mockResolvedValue(saved(["purpose"]));
     const user = await openForm();
 
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(success).toHaveBeenCalledWith("Event information saved."));

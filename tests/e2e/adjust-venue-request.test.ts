@@ -109,9 +109,9 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await waitForHydration(page);
     await expect(page).toHaveURL(new RegExp(`/venues/${venueIds[1]}\\?`));
     await expect(page.getByRole("heading", { name: suggestedName })).toBeVisible();
-    await expect(page.getByLabel("Date (required)")).toHaveValue("2037-10-14");
-    await expect(page.getByLabel("Start time (required)")).toHaveValue("10:00");
-    await expect(page.getByLabel("End time (required)")).toHaveValue("13:30");
+    await expect(page.getByLabel("Date")).toHaveValue("2037-10-14");
+    await expect(page.getByLabel("Start time")).toHaveValue("10:00");
+    await expect(page.getByLabel("End time")).toHaveValue("13:30");
     // PTR-165 AC1: the adjusted request already names the rejection that it replaces.
     await expect(page.getByLabel("Replaces (optional)")).toContainText(`Rejected — ${refusedName}`);
     await expect(

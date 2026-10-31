@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
+import { Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import { IconAction } from "#/components/ui/icon-action";
 import {
   Dialog,
   DialogContent,
@@ -82,16 +84,9 @@ export function LiftVenueBlockButton({
     <AlertDialog>
       <AlertDialogTrigger
         render={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            aria-label={`Lift venue block, ${period}`}
-          />
+          <IconAction label={`Lift venue block, ${period}`} icon={<Unlock />} disabled={pending} />
         }
-      >
-        {pending ? "Lifting…" : "Lift block"}
-      </AlertDialogTrigger>
+      />
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogTitle>Lift venue block</AlertDialogTitle>
