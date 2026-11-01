@@ -272,9 +272,14 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
 
   async function addHold(eventId: number) {
     const id = crypto.randomUUID();
-    await database
-      .insert(schema.venueHolds)
-      .values({ id, eventId, venueId, heldById: coordinator.id, ...nextWindow() });
+    await database.insert(schema.venueHolds).values({
+      id,
+      eventId,
+      venueId,
+      heldById: coordinator.id,
+      expiresAt: "2099-12-01 00:00:00",
+      ...nextWindow(),
+    });
     return id;
   }
 

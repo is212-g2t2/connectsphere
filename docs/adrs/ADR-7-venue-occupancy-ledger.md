@@ -12,6 +12,8 @@ status: accepted
 
 > **Amended 2026-10-22:** a write that can change the place count now locks the event `FOR NO KEY UPDATE` (PTR-163). The lock order consequences record this change. The ledger and its constraint do not change.
 
+> **Amended 2026-10-20:** a `held` hold requires `expires_at` (PTR-152). The check and its backfill live in custom migration 0066, outside the Drizzle snapshot with the exclusion constraint in the Migration exemption section.
+
 ## Context
 
 [ADR-5](./ADR-5-venue-booking-overlap.md) kept venue time free of overlaps with two exclusion constraints on the requested times: `venue_requests_no_overlap` for approved bookings and `venue_holds_no_overlap` for held holds. Three rules break that shape:
@@ -66,6 +68,8 @@ Approval, amendment and the conflict flag give one reason for a refusal. The ord
 ### Migration exemption
 
 Drizzle Kit cannot express an EXCLUDE constraint. `0048_venue-occupancy-ledger` is the reviewed `db:generate --custom` exception. It adds `venue_occupancy_no_overlap`, then drops `venue_requests_no_overlap`, `venue_holds_no_overlap` and their status wrappers `venue_request_occupies_venue` and `venue_hold_occupies_venue`.
+
+Custom migration `0066_held-holds-require-expiry` adds `venue_holds_held_requires_expiry` the same way: it first expires the null-expiry `held` rows that predate the request-and-place gate and frees their ledger rows, then adds the check. The check stays outside the snapshot, so `db:generate` never drops it.
 
 The custom files `0019` and `0024` stay in the journal as history. The 0047 predicate of `venue_requests_approved_starts_at_idx` compares an enum label directly (`status = 'approved'`). A deployed database committed that label long ago. A fresh database creates the enum type in the same transaction, and PostgreSQL then allows its labels.
 

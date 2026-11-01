@@ -837,7 +837,11 @@ export const venueRequests = pgTable(
  * PTR-109: tentative venue holds from an event's assigned Coordinator. A hold reserves a venue
  * before final booking confirmation through its `venue_occupancy` row. Each venue and time slot
  * can have one active hold or one approved booking. PTR-150: a `requested` hold has no ledger
- * row until Venue Staff place it. `held_by_id` stays the requesting Coordinator.
+ * row until Venue Staff place it. `held_by_id` stays the requesting Coordinator. PTR-152: custom
+ * migration 0066 adds `venue_holds_held_requires_expiry`, so a `held` hold requires `expires_at`.
+ * The check lives outside the Drizzle snapshot with migration 0048's exclusion constraint, so
+ * `db:generate` never drops it. The migration first expires the null-expiry `held` rows that
+ * predate the request-and-place gate and frees their ledger rows.
  */
 export const venueHolds = pgTable(
   "venue_holds",
@@ -855,9 +859,11 @@ export const venueHolds = pgTable(
     setupMinutes: integer("setup_minutes").notNull().default(0),
     turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     status: venueHoldStatus("status").default("held").notNull(),
-    // PTR-142: Venue Staff set the expiry. A null value means that the hold has no expiry. Both
-    // values are venue-local timestamps, like `starts_at`. The Coordinator sets `warn_at` as a
-    // fixed time, so an extension does not move it. PTR-143's sweep ignores a hold with no expiry.
+    // PTR-142: Venue Staff set the expiry. Both values are venue-local timestamps, like
+    // `starts_at`. The Coordinator sets `warn_at` as a fixed time, so an extension does not move
+    // it. PTR-143's sweep ignores a hold with no expiry. PTR-152: a `held` hold requires an
+    // expiry (`venue_holds_held_requires_expiry`, custom migration 0066); any other state keeps
+    // `expires_at` nullable.
     expiresAt: timestamp("expires_at", { mode: "string" }),
     warnAt: timestamp("warn_at", { mode: "string" }),
     expiryChangedById: text("expiry_changed_by_id").references(() => user.id, {

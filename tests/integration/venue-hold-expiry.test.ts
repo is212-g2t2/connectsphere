@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -14,7 +14,6 @@ import {
 import {
   VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
-  VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_ORDER_MESSAGE,
   VENUE_HOLD_WARNING_PAST_MESSAGE,
 } from "#/features/venue-requests/schema";
@@ -141,12 +140,6 @@ describe("tentative hold expiry (PTR-142)", () => {
     handleSetVenueHoldExpiry({ id: holdId, expiresAt }, session(actor), database as never);
   const setWarning = (warnAt: string | null, actor = users.coordinator) =>
     handleSetVenueHoldWarning({ id: holdId, warnAt }, session(actor), database as never);
-  /** A hold placed before this release may have no expiry. Clear the placed one to test that row. */
-  const clearExpiry = () =>
-    database
-      .update(schema.venueHolds)
-      .set({ expiresAt: null })
-      .where(eq(schema.venueHolds.id, holdId));
   /** The expiry notices only. Placement and its request raise notices of their own kinds. */
   const notices = () =>
     database
@@ -179,7 +172,6 @@ describe("tentative hold expiry (PTR-142)", () => {
   });
 
   it("sets the expiry, records who and when, and tells the Coordinator (AC1, AC2)", async () => {
-    await clearExpiry();
     const hold = await setExpiry("2099-06-10T12:00");
     expect(hold).toMatchObject({
       expiresAt: "2099-06-10 12:00:00",
@@ -195,32 +187,33 @@ describe("tentative hold expiry (PTR-142)", () => {
       {
         recipientId: users.coordinator.id,
         kind: "venue_hold_expiry_changed",
-        payload: { action: "set", expiresAt: "2099-06-10 12:00:00", previousExpiresAt: null },
+        payload: {
+          action: "shortened",
+          expiresAt: "2099-06-10 12:00:00",
+          previousExpiresAt: "2099-06-14 12:00:00",
+        },
       },
     ]);
   });
 
   it("extends and shortens the expiry with the matching action (AC2, AC4)", async () => {
-    await clearExpiry();
     await setExpiry("2099-06-10T12:00");
     await setExpiry("2099-06-12T12:00");
     await setExpiry("2099-06-11T12:00");
     const actions = (await notices()).map(row => (row.payload as { action: string }).action);
-    expect(actions.toSorted()).toEqual(["extended", "set", "shortened"]);
+    expect(actions.toSorted()).toEqual(["extended", "shortened", "shortened"]);
   });
 
   it("raises nothing when the expiry does not change", async () => {
-    await clearExpiry();
     await setExpiry("2099-06-10T12:00");
     await setExpiry("2099-06-10T12:00");
     expect(await notices()).toHaveLength(1);
   });
 
   it("keeps the stored warning instant when the expiry is extended (AC4)", async () => {
-    await clearExpiry();
     await setExpiry("2099-06-10T12:00");
     await setWarning("2099-06-09T09:00");
-    const extended = await setExpiry("2099-06-14T12:00");
+    const extended = await setExpiry("2099-06-12T12:00");
     expect(extended.warnAt).toBe("2099-06-09 09:00:00");
     const payloads = (await notices()).map(row => row.payload as { warnAt: string | null });
     expect(payloads.at(-1)?.warnAt).toBe("2099-06-09 09:00:00");
@@ -258,11 +251,9 @@ describe("tentative hold expiry (PTR-142)", () => {
     expect((await setWarning(null)).warnAt).toBeNull();
   });
 
-  it("refuses a warning while the hold has no expiry, and still allows a clear", async () => {
-    await clearExpiry();
-    await expect(setWarning("2099-06-09T09:00")).rejects.toThrow(
-      VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE
-    );
+  it("still allows the Coordinator to clear the warning", async () => {
+    await setExpiry("2099-06-10T12:00");
+    await setWarning("2099-06-09T09:00");
     expect((await setWarning(null)).warnAt).toBeNull();
   });
 
@@ -352,5 +343,72 @@ describe("tentative hold expiry (PTR-142)", () => {
     await expect(setExpiry("2099-06-10T12:00")).rejects.toThrow("This hold is no longer active.");
     await expect(setWarning("2099-06-09T09:00")).rejects.toThrow("This hold is no longer active.");
     await expect(setExpiry("tomorrow")).rejects.toThrow("Enter a valid expiry date and time");
+  });
+
+  // ── Migration 0061 ────────────────────────────────────────────────────────────────
+  describe("migration 0061", () => {
+    it("adds the check that a held hold requires an expiry", async () => {
+      const constraints = await database.execute<{ conname: string }>(
+        sql`select conname from pg_constraint where conname = 'venue_holds_held_requires_expiry'`
+      );
+      expect(constraints.rows.map(row => row.conname)).toEqual([
+        "venue_holds_held_requires_expiry",
+      ]);
+    });
+
+    it("refuses a held hold with no expiry", async () => {
+      await expect(
+        database.insert(schema.venueHolds).values({
+          id: "ptr152-held-no-expiry",
+          eventId,
+          venueId,
+          startsAt: "2099-07-01 09:00:00",
+          endsAt: "2099-07-01 12:00:00",
+          status: "held",
+          heldById: users.coordinator.id,
+        })
+      ).rejects.toMatchObject({
+        cause: { constraint: "venue_holds_held_requires_expiry" },
+      });
+      await expect(
+        database
+          .update(schema.venueHolds)
+          .set({ expiresAt: null })
+          .where(eq(schema.venueHolds.id, holdId))
+      ).rejects.toMatchObject({
+        cause: { constraint: "venue_holds_held_requires_expiry" },
+      });
+    });
+
+    it("keeps the expiry nullable for every other hold state", async () => {
+      const rows: {
+        id: string;
+        status: "requested" | "declined" | "released" | "expired";
+        declineReason?: string;
+      }[] = [
+        { id: "ptr152-requested-no-expiry", status: "requested" },
+        { id: "ptr152-declined-no-expiry", status: "declined", declineReason: "Room closed" },
+        { id: "ptr152-released-no-expiry", status: "released" },
+        { id: "ptr152-expired-no-expiry", status: "expired" },
+      ];
+      for (const [index, row] of rows.entries()) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- one insert per state, in order
+        await database.insert(schema.venueHolds).values({
+          ...row,
+          eventId,
+          venueId,
+          heldById: users.coordinator.id,
+          startsAt: `2099-07-0${index + 1} 09:00:00`,
+          endsAt: `2099-07-0${index + 1} 12:00:00`,
+        });
+      }
+      const stored = await database
+        .select({ id: schema.venueHolds.id, expiresAt: schema.venueHolds.expiresAt })
+        .from(schema.venueHolds)
+        .where(eq(schema.venueHolds.eventId, eventId));
+      expect(
+        stored.filter(hold => hold.id.startsWith("ptr152-")).map(hold => [hold.id, hold.expiresAt])
+      ).toEqual(rows.map(row => [row.id, null]));
+    });
   });
 });
