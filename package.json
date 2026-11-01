@@ -98,6 +98,8 @@
   "overrides": {
     "@opentelemetry/api": "^1.9.1",
     "esbuild": "^0.25.0",
+    "glob": "^14.0.2",
+    "minimatch": "^11.0.1",
     "seroval": "^1.6.8",
     "seroval-plugins": "^1.6.8"
   },
