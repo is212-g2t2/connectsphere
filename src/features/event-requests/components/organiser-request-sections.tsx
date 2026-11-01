@@ -9,6 +9,7 @@ import {
   CancellationRequestHistory,
   ChangeRequestHistory,
   ClarificationThread,
+  InformationChangeHistory,
 } from "#/features/event-requests/components/request-message-blocks";
 import { NOT_YET_ASSIGNED } from "#/features/event-requests/components/request-list-page";
 import {
@@ -120,6 +121,10 @@ function RequestsBody({ data }: { data: EventPageData }) {
 
         {request.changeRequests.length > 0 && (
           <ChangeRequestHistory request={request} viewerIsCoordinator={false} />
+        )}
+
+        {request.informationChanges.length > 0 && (
+          <InformationChangeHistory changes={request.informationChanges} />
         )}
 
         {request.cancellationRequests.length > 0 && (

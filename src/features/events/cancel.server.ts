@@ -13,7 +13,7 @@ import {
   EVENT_CANCELLATION_CLOSED,
   canRequestEventCancellation,
   parseEventCancellationDeclineInput,
-  parseEventRequestId,
+  parseEventCancellationInput,
 } from "#/features/event-requests/schema";
 import { loadArrangementHolders } from "#/features/events/arrangements.server";
 import {
@@ -73,9 +73,13 @@ function eventName(event: { eventName: string }): string {
  *
  * PTR-156: the same transaction declines every other waiting change request. The cancelling
  * Coordinator is the processor, and the Organiser gets the existing decline notice for each.
+ *
+ * PTR-164 AC1: the Coordinator enters a reason, stored on the cancellation request and carried on
+ * the Organiser's and the Attendees' cancellation notices. The staff copies keep their anonymous
+ * wording and carry no reason (AC5).
  */
 export async function handleCancelEvent(data: unknown, actor: SessionUser, database: Database) {
-  const input = parseEventRequestId(data);
+  const input = parseEventCancellationInput(data);
 
   return database.transaction(async tx => {
     const { event, request } = await lockEventWithWaitingRequest(tx, input.id, actor);
@@ -99,6 +103,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       .update(eventCancellationRequests)
       .set({
         outcome: "cancelled",
+        cancelReason: input.reason,
         processedById: actor.id,
         processedByName: closeOutProcessorName(actor),
         processedAt: now,
@@ -123,12 +128,12 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
 
     await raiseNotifications(tx, [
       ...(await staffNotices(tx, event.id, eventName(event))),
-      ...(await attendeeNotices(tx, event.id, eventName(event))),
+      ...(await attendeeNotices(tx, event.id, eventName(event), input.reason)),
       {
         recipientId: event.organiserId,
         eventRequestId: event.id,
         kind: "event_cancelled",
-        payload: { audience: "organiser", eventName: eventName(event) },
+        payload: { audience: "organiser", eventName: eventName(event), reason: input.reason },
       },
       ...staleChanges.map(change => ({
         recipientId: event.organiserId,
@@ -160,7 +165,8 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
  * PTR-54 AC3: Notify the Venue Staff member for each approved booking, once per booking. Their
  * notice names the booking, not the event (PTR-8). Notify each Technical Support member with a
  * reservation once. If a staff account was deleted, no one receives a notice. Keep the item in the
- * shared queue and on the Coordinator's list.
+ * shared queue and on the Coordinator's list. PTR-164 AC5: neither copy carries the free-text
+ * reason, so it cannot identify the event to Venue Staff.
  */
 async function staffNotices(
   tx: Pick<Database, "select" | "selectDistinct">,
@@ -189,11 +195,15 @@ async function staffNotices(
   return notices;
 }
 
-/** PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs, and every waitlisted Attendee. */
+/**
+ * PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs, and every waitlisted
+ * Attendee. PTR-164 AC1: their copy carries the reason; they already know the event.
+ */
 async function attendeeNotices(
   tx: Pick<Database, "select">,
   eventId: number,
-  name: string
+  name: string,
+  reason: string
 ): Promise<NewNotification[]> {
   const registrations = await tx
     .select({ attendeeId: eventRegistrations.attendeeId })
@@ -208,7 +218,7 @@ async function attendeeNotices(
     recipientId: attendeeId,
     eventRequestId: eventId,
     kind: "event_cancelled",
-    payload: { audience: "attendee", eventName: name },
+    payload: { audience: "attendee", eventName: name, reason },
   }));
 }
 

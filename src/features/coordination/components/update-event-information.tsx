@@ -15,12 +15,18 @@ import {
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog";
 import { Card, CardContent } from "#/components/ui/card";
+import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import { Textarea } from "#/components/ui/textarea";
 import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import { formatVenuePeriod } from "#/features/event-requests/format";
-import { EVENT_INFORMATION_FIELDS, significantFields } from "#/features/event-requests/schema";
+import {
+  EVENT_INFORMATION_FIELDS,
+  SIGNIFICANT_CHANGE_REASON_MAX,
+  significantFields,
+} from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import type { EventRequestDetail, EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { RoomLayout } from "#/features/venues/schema";
@@ -32,12 +38,13 @@ import { skipRootFilter } from "#/lib/invalidate";
  * PTR-23 AC2, AC3: the warning that waits for the Coordinator's answer before a significant
  * change is sent. The save has to stay inside the form's own submit, which owns the submitting
  * flag and the error message, so the submit awaits a promise that the dialog settles rather than
- * handing the values to a second action: `resolve(true)` saves; `resolve(false)` returns to the
- * form with its edits.
+ * handing the values to a second action: `resolve(reason)` saves with the reason; `resolve(null)`
+ * returns to the form with its edits.
+ * PTR-164 AC2: the dialog also collects the reason the change log and the notices carry.
  */
 interface SignificantChangeWarning {
   arrangements: OutstandingReleases;
-  resolve: (proceed: boolean) => void;
+  resolve: (reason: string | null) => void;
 }
 
 /**
@@ -119,6 +126,8 @@ function UpdateEventInformationBody({
   // The warning keeps its content after it closes, so the dialog does not rewrite itself while it
   // fades out. `warningOpen` says whether it shows.
   const [warningOpen, setWarningOpen] = useState(false);
+  // A new warning remounts the dialog, clearing the previous reason without an effect.
+  const [warningId, setWarningId] = useState(0);
 
   const reportDirty = useCallback(
     (next: boolean) => {
@@ -151,13 +160,14 @@ function UpdateEventInformationBody({
     // Judged on the fields touched, so the warning comes before anything is sent. The server
     // judges again on what actually changed.
     const significant = significantFields(touchedFields);
+    let reason: string | null = null;
     if (significant.length > 0) {
       setConfirming(true);
-      let proceed = false;
       try {
         const arrangements = await listEventArrangements({ data: { id: request.id } });
-        proceed = await new Promise<boolean>(resolve => {
+        reason = await new Promise<string | null>(resolve => {
           setWarning({ arrangements, resolve });
+          setWarningId(id => id + 1);
           setWarningOpen(true);
         });
       } catch (error) {
@@ -171,7 +181,7 @@ function UpdateEventInformationBody({
         setConfirming(false);
       }
       // The form keeps its edits; nothing was sent.
-      if (!proceed) return;
+      if (reason === null) return;
     }
 
     setSaving(true);
@@ -180,7 +190,9 @@ function UpdateEventInformationBody({
         data: {
           id: request.id,
           amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, touchedFields),
-          ...(significant.length > 0 ? { acknowledgeSignificant: true } : {}),
+          ...(significant.length > 0
+            ? { acknowledgeSignificant: true as const, reason: reason ?? "" }
+            : {}),
           ...(applying ? { changeRequestId: applying.id } : {}),
         },
       });
@@ -312,7 +324,7 @@ function UpdateEventInformationBody({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <SignificantChangeDialog warning={warning} open={warningOpen} />
+          <SignificantChangeDialog key={warningId} warning={warning} open={warningOpen} />
         </CardContent>
       </Card>
     </section>
@@ -322,9 +334,10 @@ function UpdateEventInformationBody({
 /**
  * PTR-23 AC2, AC3: the warning before a significant change is saved. It names every booking,
  * tentative hold and reservation the event holds, or says that it holds none, and that saving
- * changes, cancels and releases none of them. "Save anyway" settles the promise with true; the
- * dialog's own close (Go back, Escape) settles it with false. Base UI's close runs only for its
- * own close paths, so the two never settle the same promise twice.
+ * changes, cancels and releases none of them. "Save anyway" settles the promise with the reason;
+ * the dialog's own close (Go back, Escape) settles it with null. Base UI's close runs only for
+ * its own close paths, so the two never settle the same promise twice.
+ * PTR-164 AC2: the dialog also collects the reason the change log and the notices carry.
  */
 function SignificantChangeDialog({
   warning,
@@ -333,6 +346,8 @@ function SignificantChangeDialog({
   warning: SignificantChangeWarning | null;
   open: boolean;
 }) {
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const arrangements = warning?.arrangements;
   const items = arrangements
     ? [
@@ -354,11 +369,19 @@ function SignificantChangeDialog({
     arrangements !== undefined &&
     (arrangements.venueBookings.length > 0 || arrangements.equipmentReservations.length > 0);
 
+  function saveAnyway() {
+    if (reason.trim() === "") {
+      setError("Enter a reason for this change");
+      return;
+    }
+    warning?.resolve(reason.trim());
+  }
+
   return (
     <AlertDialog
       open={open}
       onOpenChange={next => {
-        if (!next) warning?.resolve(false);
+        if (!next) warning?.resolve(null);
       }}
     >
       {/* The list can be long (an event may hold many lines), so the popup scrolls inside the
@@ -385,14 +408,31 @@ function SignificantChangeDialog({
             {staffHold && (
               <p className="body-sm text-muted-foreground">
                 The Venue Staff and Technical Support who still hold one of these will be notified
-                of the change.
+                of the change. The Organiser is told too.
               </p>
             )}
           </div>
         )}
+        <Field data-invalid={error !== null}>
+          <FieldLabel htmlFor="significant-change-reason">Reason for this change</FieldLabel>
+          <Textarea
+            id="significant-change-reason"
+            rows={3}
+            maxLength={SIGNIFICANT_CHANGE_REASON_MAX}
+            value={reason}
+            aria-invalid={error !== null}
+            onChange={event => {
+              setReason(event.target.value);
+              if (error !== null && event.target.value.trim() !== "") setError(null);
+            }}
+          />
+          <FieldError errors={error ? [{ message: error }] : []} />
+        </Field>
         <AlertDialogFooter>
           <AlertDialogCancel>Go back</AlertDialogCancel>
-          <AlertDialogAction onClick={() => warning?.resolve(true)}>Save anyway</AlertDialogAction>
+          <Button type="button" onClick={saveAnyway}>
+            Save anyway
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

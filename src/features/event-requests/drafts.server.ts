@@ -19,6 +19,7 @@ import {
   changeRequestsWaitingSql,
   listEventChangeRequests,
 } from "#/features/event-requests/change-requests.server";
+import { listEventInformationChanges } from "#/features/event-requests/information-changes.server";
 import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
@@ -257,17 +258,19 @@ export async function handleGetEventRequest(
   const request = rows.at(0);
   if (!request) return null;
 
-  const [clarifications, changeRequests, cancellationRequests] = await Promise.all([
-    database
-      .select()
-      .from(clarificationRequests)
-      .where(eq(clarificationRequests.eventRequestId, id))
-      .orderBy(asc(clarificationRequests.createdAt)),
-    listEventChangeRequests(id, database),
-    listEventCancellationRequests(id, database),
-  ]);
+  const [clarifications, changeRequests, cancellationRequests, informationChanges] =
+    await Promise.all([
+      database
+        .select()
+        .from(clarificationRequests)
+        .where(eq(clarificationRequests.eventRequestId, id))
+        .orderBy(asc(clarificationRequests.createdAt)),
+      listEventChangeRequests(id, database),
+      listEventCancellationRequests(id, database),
+      listEventInformationChanges(id, database),
+    ]);
 
-  return { ...request, clarifications, changeRequests, cancellationRequests };
+  return { ...request, clarifications, changeRequests, cancellationRequests, informationChanges };
 }
 
 /**

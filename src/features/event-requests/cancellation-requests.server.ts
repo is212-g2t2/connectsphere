@@ -31,6 +31,7 @@ export async function listEventCancellationRequests(
       createdAt: eventCancellationRequests.createdAt,
       outcome: eventCancellationRequests.outcome,
       declineReason: eventCancellationRequests.declineReason,
+      cancelReason: eventCancellationRequests.cancelReason,
       processedByName: eventCancellationRequests.processedByName,
       processedAt: eventCancellationRequests.processedAt,
     })

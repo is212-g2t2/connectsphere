@@ -188,6 +188,9 @@ test("the Coordinator confirms the significant-change warning when applying an a
   await expect(
     dialog.getByText(/holds no venue booking, tentative hold or equipment reservation/)
   ).toBeVisible();
+  await dialog
+    .getByLabel("Reason for this change")
+    .fill("The attendance grew after the final registration count.");
   await dialog.getByRole("button", { name: "Save anyway" }).click();
 
   await expect(

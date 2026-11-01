@@ -11,8 +11,9 @@ type EventSignificantChangeEmailProps = {
   changedFields: readonly SignificantField[];
   actorName: string;
   arrangementUrl: string;
+  reason?: string;
 } & (
-  | { audience: "technical_support"; eventName: string }
+  | { audience: "technical_support" | "organiser"; eventName: string }
   | { audience: "venue_staff"; venueName: string; startsAt: string; endsAt: string }
 );
 
@@ -27,10 +28,11 @@ function significantFieldPhrase(fields: readonly SignificantField[]): string {
  * PTR-23 AC5: the Coordinator saved a significant change on an event whose arrangement the
  * recipient holds. Nothing is released or re-statused by the change (AC3); the recipient checks
  * that what they hold still suits the event. The Venue Staff copy names the booking and not the
- * event, as every Venue Staff notice does (PTR-8 AC3).
+ * event, as every Venue Staff notice does (PTR-8 AC3). PTR-164 AC5: the staff copies show no
+ * reason; only the Organiser's copy does.
  */
 export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailProps) => {
-  const { changedFields, actorName, arrangementUrl } = props;
+  const { changedFields, actorName, arrangementUrl, reason } = props;
   const changed = significantFieldPhrase(changedFields);
 
   if (props.audience === "venue_staff") {
@@ -67,6 +69,9 @@ export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailPr
           Its equipment reservations are unchanged and still held. Check that they still suit the
           event, and talk to the Coordinator if they do not.
         </Text>
+        {props.audience === "organiser" && reason ? (
+          <Text style={{ ...emailText, whiteSpace: "pre-line" }}>Reason: {reason}</Text>
+        ) : null}
         <Button href={arrangementUrl} style={emailButton}>
           View the event
         </Button>

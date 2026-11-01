@@ -718,6 +718,7 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
       clarifications: [],
       changeRequests: [],
       cancellationRequests: [],
+      informationChanges: [],
     });
   });
 

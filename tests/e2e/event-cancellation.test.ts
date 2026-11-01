@@ -156,6 +156,7 @@ test("the Coordinator cancels the event, sees what is still held, and the Attend
 
   const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/events/${id}`);
   await coordinator.getByRole("button", { name: "Cancel event" }).click();
+  await coordinator.getByLabel("Reason for cancelling").fill("The venue is no longer available.");
   await coordinator.getByRole("button", { name: "Cancel the event" }).click();
   await expect(
     coordinator.getByText("Event cancelled. Everyone concerned will be notified.")
