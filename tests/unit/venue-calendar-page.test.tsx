@@ -131,7 +131,13 @@ describe("VenueCalendarPage", () => {
   });
 
   it("renders each period with its reason, time and state", () => {
-    render(<VenueCalendarPage venues={[venue]} schedule={schedule} search={{}} />);
+    render(
+      <VenueCalendarPage
+        venues={[venue]}
+        schedule={schedule}
+        search={{ venueId: 7, startDate: schedule.startDate, endDate: schedule.endDate }}
+      />
+    );
 
     const results = screen.getByRole("region", { name: "Availability results" });
     expect(within(results).getByRole("heading", { name: "Great Hall" })).toBeTruthy();
