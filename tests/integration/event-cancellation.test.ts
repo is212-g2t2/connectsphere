@@ -6,16 +6,22 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { render } from "@react-email/render";
 
 import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { handleGetCoordinationRequest } from "#/features/coordination/assignments.server";
+import {
+  handleDecideEventRequest,
+  handleGetCoordinationRequest,
+  handleListAssignedEventRequests,
+} from "#/features/coordination/assignments.server";
 import {
   handleReleaseEquipment,
   handleReserveEquipment,
 } from "#/features/equipment-requests/reservations.server";
 import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
+import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
 import {
   handleGetEventRequest,
   handleListUnassignedEventRequests,
@@ -785,6 +791,57 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       ]);
     });
 
+    test("declines other waiting change requests so the queue holds only actionable rows (PTR-156)", async () => {
+      const event = await createEvent("confirmed");
+      const first = await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Expected attendance", requestedValue: "120 attendees" },
+        organiser,
+        database as never
+      );
+      const second = await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Start time", requestedValue: "10:00" },
+        organiser,
+        database as never
+      );
+      await requestCancellation(event.id);
+
+      await cancel(event.id);
+
+      const changes = await database
+        .select()
+        .from(schema.eventChangeRequests)
+        .where(eq(schema.eventChangeRequests.eventRequestId, event.id))
+        .orderBy(schema.eventChangeRequests.id);
+      expect(changes.map(change => change.id)).toEqual([first.id, second.id]);
+      for (const change of changes) {
+        expect(change).toMatchObject({
+          outcome: "declined",
+          declineReason: "Event cancelled",
+          processedById: coordinator.id,
+          processedByName: coordinator.name,
+        });
+        expect(change.processedAt).toBeInstanceOf(Date);
+      }
+      // The consumed cancellation request keeps its own outcome.
+      expect((await requestsFor(event.id)).map(request => request.outcome)).toEqual(["cancelled"]);
+
+      // The Organiser gets the existing decline notice for each closed request.
+      const notices = await notificationsFor(event.id, "event_change_processed");
+      expect(notices).toHaveLength(2);
+      for (const notice of notices) {
+        expect(notice.recipientId).toBe(organiser.id);
+        expect(notice.payload).toMatchObject({
+          outcome: "declined",
+          eventName: event.eventName,
+          reason: "Event cancelled",
+        });
+      }
+
+      // A closed request no longer counts as waiting on the Coordinator's list.
+      const assigned = await handleListAssignedEventRequests(coordinator, database as never);
+      expect(assigned.find(row => row.id === event.id)?.changeRequestsWaiting).toBe(0);
+    });
+
     test("declines with a recorded reason, notifies the Organiser and keeps the event (AC8)", async () => {
       const event = await createEvent("confirmed");
       await requestCancellation(event.id);
@@ -819,6 +876,55 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       ]);
     });
 
+    test("falls back to the email when the Coordinator name is blank (PTR-156)", async () => {
+      const blank = { ...coordinator, name: "" };
+      const event = await createEvent("confirmed");
+      await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Start time", requestedValue: "10:00" },
+        organiser,
+        database as never
+      );
+      await requestCancellation(event.id);
+
+      await cancel(event.id, blank);
+
+      expect((await eventRow(event.id)).cancelledByName).toBe(coordinator.email);
+      const [request] = await requestsFor(event.id);
+      expect(request.processedByName).toBe(coordinator.email);
+      const [change] = await database
+        .select()
+        .from(schema.eventChangeRequests)
+        .where(eq(schema.eventChangeRequests.eventRequestId, event.id));
+      expect(change.processedByName).toBe(coordinator.email);
+
+      const declined = await createEvent("confirmed");
+      await requestCancellation(declined.id);
+      await decline(declined.id, "The event must go ahead.", blank);
+      const [saved] = await requestsFor(declined.id);
+      expect(saved.processedByName).toBe(coordinator.email);
+    });
+
+    test("a declined cancellation on a rejected event names the rejection (PTR-156)", async () => {
+      const event = await createEvent("rejected");
+      await requestCancellation(event.id);
+
+      await decline(event.id, "The request no longer applies.");
+
+      const [notice] = await notificationsFor(event.id, "event_cancellation_declined");
+      expect(notice.payload).toMatchObject({
+        eventName: event.eventName,
+        reason: "The request no longer applies.",
+        eventStatus: "rejected",
+      });
+      const notification = parsed(notice);
+      expect(notificationSummary(notification)).toBe(
+        `Cancellation request declined: ${event.eventName}`
+      );
+      const html = await render(renderNotificationEmail(notification).element);
+      expect(html).toContain("The event stays rejected.");
+      expect(html).not.toContain("goes ahead");
+    });
+
     test("requires a reason to decline (AC8)", async () => {
       const event = await createEvent("planning");
       await requestCancellation(event.id);
@@ -826,6 +932,72 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       await expect(decline(event.id, "   ")).rejects.toThrow("Enter a reason for declining");
       const [request] = await requestsFor(event.id);
       expect(request.outcome).toBeNull();
+    });
+  });
+
+  // ── PTR-156 AC5 ──────────────────────────────────────────────────────────────────────────
+  describe("closing a rejected event (PTR-156 AC5)", () => {
+    test("cancelling a rejected event declines its waiting change requests", async () => {
+      const event = await createEvent("rejected");
+      const change = await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Expected attendance", requestedValue: "120 attendees" },
+        organiser,
+        database as never
+      );
+      await requestCancellation(event.id);
+
+      await cancel(event.id);
+
+      expect((await eventRow(event.id)).status).toBe("cancelled");
+      const [saved] = await database
+        .select()
+        .from(schema.eventChangeRequests)
+        .where(eq(schema.eventChangeRequests.id, change.id));
+      expect(saved).toMatchObject({
+        outcome: "declined",
+        declineReason: "Event cancelled",
+        processedById: coordinator.id,
+        processedByName: coordinator.name,
+      });
+      expect(saved.processedAt).toBeInstanceOf(Date);
+      // The consumed cancellation request keeps its own outcome.
+      expect((await requestsFor(event.id)).map(request => request.outcome)).toEqual(["cancelled"]);
+
+      const notices = await notificationsFor(event.id, "event_change_processed");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({
+        recipientId: organiser.id,
+        payload: { outcome: "declined", reason: "Event cancelled" },
+      });
+
+      const assigned = await handleListAssignedEventRequests(coordinator, database as never);
+      expect(assigned.find(row => row.id === event.id)?.changeRequestsWaiting).toBe(0);
+    });
+
+    test("a rejection alone closes no waiting change request", async () => {
+      const event = await createEvent("under_review");
+      const change = await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Start time", requestedValue: "10:00" },
+        organiser,
+        database as never
+      );
+
+      await handleDecideEventRequest(
+        { id: event.id, decision: "rejected", reason: "Not suitable" },
+        coordinator,
+        database as never
+      );
+
+      expect((await eventRow(event.id)).status).toBe("rejected");
+      const [saved] = await database
+        .select()
+        .from(schema.eventChangeRequests)
+        .where(eq(schema.eventChangeRequests.id, change.id));
+      expect(saved.outcome).toBeNull();
+      // It still counts as waiting, and no decline notice went out.
+      const assigned = await handleListAssignedEventRequests(coordinator, database as never);
+      expect(assigned.find(row => row.id === event.id)?.changeRequestsWaiting).toBe(1);
+      expect(await notificationsFor(event.id, "event_change_processed")).toEqual([]);
     });
   });
 

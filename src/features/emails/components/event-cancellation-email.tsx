@@ -90,21 +90,36 @@ export const EventCancellationDeclinedEmail = ({
   eventName,
   reason,
   eventUrl,
+  closeOut,
+  eventStatus,
 }: {
   eventName: string;
   reason: string;
   eventUrl: string;
-}) => (
-  <Layout previewText={`Cancellation request declined for ${eventName}`}>
-    <Section>
-      <Text style={emailHeading}>Cancellation request declined</Text>
-      <Text style={emailText}>
-        Your request to cancel <strong>{eventName}</strong> was declined. The event goes ahead.
-      </Text>
-      <Text style={{ ...emailText, whiteSpace: "pre-line" }}>Reason: {reason}</Text>
-      <Button href={eventUrl} style={emailButton}>
-        View your request
-      </Button>
-    </Section>
-  </Layout>
-);
+  /** PTR-156: true when completion closed the request instead of a Coordinator declining it. */
+  closeOut?: boolean;
+  /** PTR-156: the event status at decline time. A declined cancellation on a rejected event stays rejected. */
+  eventStatus?: string;
+}) => {
+  const closed = closeOut === true;
+  return (
+    <Layout previewText={`Cancellation request ${closed ? "closed" : "declined"} for ${eventName}`}>
+      <Section>
+        <Text style={emailHeading}>Cancellation request {closed ? "closed" : "declined"}</Text>
+        <Text style={emailText}>
+          Your request to cancel <strong>{eventName}</strong>{" "}
+          {closed ? "was closed. " : "was declined. "}
+          {closed
+            ? "The event has already taken place, so this request was closed."
+            : eventStatus === "rejected"
+              ? "The event stays rejected."
+              : "The event goes ahead."}
+        </Text>
+        <Text style={{ ...emailText, whiteSpace: "pre-line" }}>Reason: {reason}</Text>
+        <Button href={eventUrl} style={emailButton}>
+          View your request
+        </Button>
+      </Section>
+    </Layout>
+  );
+};

@@ -4,6 +4,13 @@ export const CANCELLED_EVENT_ACTIVITY_MESSAGE =
 export const NO_CANCELLATION_REQUEST_MESSAGE =
   "There is no cancellation request waiting for this event.";
 
+/**
+ * PTR-156: why a waiting change request closes when its event is cancelled. The close-out writes
+ * this as the decline reason and sends the existing decline notice, so the queue holds only
+ * requests the Coordinator can still act on.
+ */
+export const EVENT_CANCELLED_CLOSEOUT_REASON = "Event cancelled";
+
 /** One venue period, in the floating venue-local spelling the columns use. */
 interface VenuePeriod {
   id: string;

@@ -157,7 +157,7 @@ export async function handleUpdateEventInformation(
         .set({
           outcome: "applied",
           processedById: actor.id,
-          processedByName: actorName,
+          processedByName: actorName || actor.email,
           processedAt: appliedAt,
         })
         .where(
