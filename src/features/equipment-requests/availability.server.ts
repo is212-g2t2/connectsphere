@@ -1,20 +1,36 @@
-import { and, asc, eq, gt, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { equipmentReservations, equipmentTypes, equipmentUnavailability } from "#/db/schema";
-import { NotFoundError } from "#/features/auth/session";
+import {
+  equipmentRequests,
+  equipmentReservations,
+  equipmentTypes,
+  equipmentUnavailability,
+} from "#/db/schema";
+import { ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   computeAvailableEquipmentQuantity,
   summariseAvailability,
 } from "#/features/equipment-requests/availability";
 import { loadWorkableLines } from "#/features/equipment-requests/equipment.server";
-import { parseAvailabilityCheckInput } from "#/features/equipment-requests/schema";
+import {
+  EQUIPMENT_CATALOGUE_DELETE_REFUSAL,
+  EQUIPMENT_CATALOGUE_DUPLICATE_MESSAGE,
+  EQUIPMENT_UNAVAILABILITY_EXCEEDS_HELD_MESSAGE,
+  equipmentHeldBelowUnavailableMessage,
+  equipmentUnavailabilityMissingMessage,
+  parseAvailabilityCheckInput,
+  parseEquipmentTypeId,
+  parseEquipmentTypeInput,
+  parseEquipmentUnavailabilityInput,
+} from "#/features/equipment-requests/schema";
 import {
   bookingPeriod,
   chooseEquipmentBooking,
   selectEquipmentBookings,
 } from "#/features/equipment-requests/bookings.server";
+import { isConstraintViolation } from "#/lib/db-errors";
 
 /** Server-only because it imports `#/db/schema`. See `equipment.server.ts`. */
 
@@ -138,10 +154,208 @@ export async function handleCheckEquipmentAvailability(
   };
 }
 
-/** PTR-40: List equipment types for the availability picker. */
+/** PTR-40: List equipment types for the availability picker. PTR-162 adds held and out-of-service totals so the catalogue page reads one list. */
 export async function handleListEquipmentTypes(database: Database) {
-  return database
-    .select({ id: equipmentTypes.id, name: equipmentTypes.name })
+  const types = await database
+    .select({
+      id: equipmentTypes.id,
+      name: equipmentTypes.name,
+      quantityHeld: equipmentTypes.quantityHeld,
+    })
     .from(equipmentTypes)
     .orderBy(asc(equipmentTypes.name));
+  if (types.length === 0) return [];
+  const unavailable = await database
+    .select({
+      equipmentTypeId: equipmentUnavailability.equipmentTypeId,
+      reason: equipmentUnavailability.reason,
+      quantityUnavailable: equipmentUnavailability.quantityUnavailable,
+    })
+    .from(equipmentUnavailability)
+    .where(
+      inArray(
+        equipmentUnavailability.equipmentTypeId,
+        types.map(type => type.id)
+      )
+    );
+  const byType = Map.groupBy(unavailable, row => row.equipmentTypeId);
+  // oxlint-disable-next-line oxc/no-map-spread
+  return types.map(type => {
+    const rows = byType.get(type.id) ?? [];
+    return {
+      ...type,
+      totalUnavailable: rows.reduce((sum, row) => sum + row.quantityUnavailable, 0),
+      unavailable: rows.toSorted((a, b) => a.reason.localeCompare(b.reason)),
+    };
+  });
+}
+
+/**
+ * PTR-162 AC1: add a type or change its quantity held. The id selects the path. A saved change
+ * keeps overlapping reservations as stored; the projection derives "Short by N" from the new
+ * value. Availability checks and reservations read the new value on their next call.
+ */
+export async function handleSaveEquipmentType(
+  data: unknown,
+  _actor: SessionUser,
+  database: Database
+) {
+  const input = parseEquipmentTypeInput(data);
+  const typeId = input.id;
+  try {
+    if (typeId === undefined) {
+      const insertedRows = await database
+        .insert(equipmentTypes)
+        .values({ name: input.name, quantityHeld: input.quantityHeld })
+        .returning();
+      const inserted = insertedRows.at(0);
+      if (!inserted) throw new NotFoundError("Not Found");
+      return inserted;
+    }
+    // PTR-162 AC2: refuse a held quantity below the recorded out-of-service total, so
+    // availability never silently clamps at zero. Lock the type row first, as the
+    // unavailability writer does, so a concurrent out-of-service write cannot slip between
+    // the read and the update.
+    return database.transaction(async tx => {
+      const type = (
+        await tx
+          .select({ id: equipmentTypes.id })
+          .from(equipmentTypes)
+          .where(eq(equipmentTypes.id, typeId))
+          .for("update")
+          .limit(1)
+      ).at(0);
+      if (!type) throw new NotFoundError("Not Found");
+      const unavailableRows = await tx
+        .select({ quantityUnavailable: equipmentUnavailability.quantityUnavailable })
+        .from(equipmentUnavailability)
+        .where(eq(equipmentUnavailability.equipmentTypeId, typeId));
+      const totalUnavailable = unavailableRows.reduce(
+        (sum, row) => sum + row.quantityUnavailable,
+        0
+      );
+      if (totalUnavailable > input.quantityHeld) {
+        throw new ConflictError(
+          equipmentHeldBelowUnavailableMessage(input.quantityHeld, totalUnavailable)
+        );
+      }
+      const updatedRows = await tx
+        .update(equipmentTypes)
+        .set({ name: input.name, quantityHeld: input.quantityHeld })
+        .where(eq(equipmentTypes.id, typeId))
+        .returning();
+      const updated = updatedRows.at(0);
+      if (!updated) throw new NotFoundError("Not Found");
+      return updated;
+    });
+  } catch (error) {
+    if (isConstraintViolation(error, "equipment_types_name_unique")) {
+      throw new ConflictError(EQUIPMENT_CATALOGUE_DUPLICATE_MESSAGE);
+    }
+    throw error;
+  }
+}
+
+/**
+ * PTR-162 AC4: delete a type only when no line or reservation references it. The foreign keys
+ * use restrict, so this readable refusal runs before the database refusal.
+ */
+export async function handleDeleteEquipmentType(
+  data: unknown,
+  _actor: SessionUser,
+  database: Database
+) {
+  const input = parseEquipmentTypeId(data);
+  const [line, reservation] = await Promise.all([
+    database
+      .select({ id: equipmentRequests.id })
+      .from(equipmentRequests)
+      .where(eq(equipmentRequests.equipmentTypeId, input.id))
+      .limit(1),
+    database
+      .select({ id: equipmentReservations.id })
+      .from(equipmentReservations)
+      .where(eq(equipmentReservations.equipmentTypeId, input.id))
+      .limit(1),
+  ]);
+  if (line.length > 0 || reservation.length > 0) {
+    // The line check fires first: every reservation belongs to a line, and the reserve path
+    // stamps that line with the same type. The reservation check is defence-in-depth; the
+    // `restrict` foreign keys refuse either way (`db-schema.test.ts` asserts both actions).
+    throw new ConflictError(EQUIPMENT_CATALOGUE_DELETE_REFUSAL);
+  }
+  const deletedRows = await database
+    .delete(equipmentTypes)
+    .where(eq(equipmentTypes.id, input.id))
+    .returning();
+  const deleted = deletedRows.at(0);
+  if (!deleted) throw new NotFoundError("Not Found");
+  return deleted;
+}
+
+/**
+ * PTR-162 AC2: record or change the out-of-service quantity for one type and reason. Keep one
+ * row per reason so an update does not count the same units twice. Enter 0 to clear the
+ * reason: the handler deletes the row, so a held quantity can recover below a recorded total.
+ * Lock the type row first so concurrent saves serialize on the type.
+ */
+export async function handleSaveEquipmentUnavailability(
+  data: unknown,
+  _actor: SessionUser,
+  database: Database
+) {
+  const input = parseEquipmentUnavailabilityInput(data);
+  return database.transaction(async tx => {
+    const type = (
+      await tx
+        .select({ id: equipmentTypes.id, quantityHeld: equipmentTypes.quantityHeld })
+        .from(equipmentTypes)
+        .where(eq(equipmentTypes.id, input.equipmentTypeId))
+        .for("update")
+        .limit(1)
+    ).at(0);
+    if (!type) throw new NotFoundError("Not Found");
+    const rows = await tx
+      .select({
+        id: equipmentUnavailability.id,
+        reason: equipmentUnavailability.reason,
+        quantityUnavailable: equipmentUnavailability.quantityUnavailable,
+      })
+      .from(equipmentUnavailability)
+      .where(eq(equipmentUnavailability.equipmentTypeId, input.equipmentTypeId));
+    // PTR-162 AC2: refuse a total that exceeds the quantity held, so availability never
+    // silently clamps at zero.
+    const otherUnavailable = rows
+      .filter(row => row.reason !== input.reason)
+      .reduce((sum, row) => sum + row.quantityUnavailable, 0);
+    if (otherUnavailable + input.quantityUnavailable > type.quantityHeld) {
+      throw new ConflictError(EQUIPMENT_UNAVAILABILITY_EXCEEDS_HELD_MESSAGE);
+    }
+    const existing = rows.find(row => row.reason === input.reason);
+    if (input.quantityUnavailable === 0) {
+      if (!existing) throw new NotFoundError(equipmentUnavailabilityMissingMessage(input.reason));
+      const [deleted] = await tx
+        .delete(equipmentUnavailability)
+        .where(eq(equipmentUnavailability.id, existing.id))
+        .returning();
+      return deleted;
+    }
+    if (existing) {
+      const [updated] = await tx
+        .update(equipmentUnavailability)
+        .set({ quantityUnavailable: input.quantityUnavailable })
+        .where(eq(equipmentUnavailability.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [inserted] = await tx
+      .insert(equipmentUnavailability)
+      .values({
+        equipmentTypeId: input.equipmentTypeId,
+        reason: input.reason,
+        quantityUnavailable: input.quantityUnavailable,
+      })
+      .returning();
+    return inserted;
+  });
 }

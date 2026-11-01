@@ -16,6 +16,7 @@ import {
   raiseCoordinatorNotification,
 } from "#/features/equipment-requests/equipment.server";
 import {
+  EQUIPMENT_LINE_UNMAPPED_MESSAGE,
   RELEASE_NO_RESERVATION_MESSAGE,
   RELEASE_NOT_LOWER_MESSAGE,
   arrangementStateLabel,
@@ -125,22 +126,12 @@ async function loadReservableLine(
     );
   }
 
-  let effectiveEquipmentTypeId = line.equipmentTypeId;
+  // PTR-162 AC5: reserve the mapped catalogue type only. Map the free-text line first; the
+  // reserve path does no name lookup, so an unmapped line refuses instead of failing on a
+  // catalogue name.
+  const effectiveEquipmentTypeId = line.equipmentTypeId;
   if (effectiveEquipmentTypeId === null) {
-    const matchedType = (
-      await database
-        .select({ id: equipmentTypes.id })
-        .from(equipmentTypes)
-        .where(eq(equipmentTypes.name, line.item))
-        .limit(1)
-    ).at(0);
-
-    if (!matchedType) {
-      throw new ConflictError(
-        `Cannot reserve equipment: catalogue item "${line.item}" is not registered in equipment catalogue`
-      );
-    }
-    effectiveEquipmentTypeId = matchedType.id;
+    throw new ConflictError(EQUIPMENT_LINE_UNMAPPED_MESSAGE);
   }
 
   const booking = args.lock

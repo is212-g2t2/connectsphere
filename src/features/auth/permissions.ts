@@ -28,6 +28,11 @@ const statement = {
   /** PTR-41 `reserve` commits units to a line; PTR-42 `release` gives some or all of them back. */
   equipment: ["reserve", "release"],
   /**
+   * PTR-162: `manage` adds types and keeps held and out-of-service quantities current. Only
+   * Technical Support holds it. Catalogue reads and writes use this verb.
+   */
+  equipment_type: ["manage"],
+  /**
    * PTR-38: `manage` is the Coordinator's add/edit/remove verb (AC1/AC4); `submit` is the
    * one-shot send to Technical Support Staff (AC5). Both are on the coordinator only.
    * PTR-39: `read` opens Technical Support's work list and `arrange` updates a line's state and
@@ -104,6 +109,7 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     venue: ["read"],
     equipment_request: ["read", "arrange"],
     equipment: ["reserve", "release"],
+    equipment_type: ["manage"],
   }),
   // PTR-146: the Safety Officer holds the safety review alone. The handlers re-read the event's
   // review, so the permission says "may review", not "may review any event".

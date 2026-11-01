@@ -46,6 +46,30 @@ describe("can(): equipment_request read and arrange (PTR-39)", () => {
   });
 });
 
+describe("can(): equipment_type manage (PTR-162)", () => {
+  test("grants the catalogue write to Technical Support only", () => {
+    expect(can("technical_support_staff", { equipment_type: ["manage"] })).toBe(true);
+
+    for (const role of [
+      "attendee",
+      "event_organiser",
+      "event_coordinator",
+      "event_coordinator_lead",
+      "venue_staff",
+      "safety_officer",
+    ]) {
+      expect(can(role, { equipment_type: ["manage"] })).toBe(false);
+    }
+  });
+
+  test("catalogue writes use equipment_type, not equipment_request:arrange", () => {
+    expect(can("technical_support_staff", { equipment_request: ["arrange"] })).toBe(true);
+    for (const role of ["event_coordinator", "venue_staff"]) {
+      expect(can(role, { equipment_type: ["manage"] })).toBe(false);
+    }
+  });
+});
+
 const record: Parameters<typeof projectEvent>[0] = {
   id: 7,
   name: "Summit",

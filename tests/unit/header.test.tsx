@@ -274,6 +274,21 @@ describe("Header mobile menu", () => {
     expect(screen.queryByRole("menuitem", { name: "Event requests" })).toBeNull();
   });
 
+  it("lists the equipment catalogue for technical support and marks it current", async () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "technical_support_staff" },
+      unreadNotifications: 0,
+    });
+    useLocation.mockReturnValue({ pathname: "/equipment-types" });
+    const visitor = userEvent.setup();
+
+    render(<Header />);
+    await openMobileMenu(visitor);
+
+    const catalogue = screen.getByRole("menuitem", { name: "Equipment catalogue" });
+    expect(catalogue.getAttribute("aria-current")).toBe("page");
+  });
+
   it("lists only Dashboard for an attendee", async () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "attendee" },

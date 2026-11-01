@@ -397,6 +397,7 @@ erDiagram
 | `equipment_request:arrange` |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
 | `equipment:reserve`         |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
 | `equipment:release`         |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
+| `equipment_type:manage`     |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
 | `vip_registration:manage`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |       —        |
 | `event_registration:read`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |       —        |
 | `safety_review:read`        |    —     |        —        |         —         |           —            |      —      |            —            |       ✅       |

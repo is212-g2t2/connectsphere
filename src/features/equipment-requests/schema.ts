@@ -4,6 +4,7 @@ import {
   EQUIPMENT_QUANTITY_MESSAGE,
   EQUIPMENT_TYPE_MAX_LENGTH,
   EQUIPMENT_TYPE_MESSAGE,
+  MAX_INTEGER,
   parseWholeNumber,
   PositiveWholeNumber,
 } from "#/features/event-requests/schema";
@@ -28,6 +29,10 @@ export interface EquipmentLine {
   venueRequestId?: string | null;
   windowChanged?: boolean;
   lastRelease?: EquipmentReleaseRecord | null;
+  /** PTR-162 AC3: units short when overlapping reservations exceed held minus out-of-service. */
+  shortfall?: number | null;
+  /** PTR-162 AC5: the mapped catalogue type, null when the free-text item matches no type. */
+  equipmentTypeId?: number | null;
 }
 
 /** States that Technical Support can set (PTR-39 AC3). Only the reserve action sets `reserved`. */
@@ -404,3 +409,119 @@ export const ArrangementFormInput = z
     arrangementNotes: arrangementFields.arrangementNotes.unwrap(),
   })
   .superRefine(requireReasonAndChange);
+
+// ── Equipment catalogue (PTR-162) ────────────────────────────────────────────
+
+export const EQUIPMENT_CATALOGUE_DUPLICATE_MESSAGE =
+  "An equipment type with this name already exists";
+export const EQUIPMENT_CATALOGUE_DELETE_REFUSAL =
+  "This equipment type is in use and cannot be deleted.";
+export const EQUIPMENT_UNAVAILABILITY_EXCEEDS_HELD_MESSAGE =
+  "Out-of-service units cannot exceed the quantity held.";
+/** Lowering held below the recorded out-of-service total names the blocking total and the recovery. */
+export function equipmentHeldBelowUnavailableMessage(
+  held: number,
+  totalUnavailable: number
+): string {
+  return `Cannot hold ${held} units with ${totalUnavailable} out of service. Enter 0 to clear an out-of-service entry.`;
+}
+/** Clearing an out-of-service reason that was never recorded names the reason. */
+export function equipmentUnavailabilityMissingMessage(reason: string): string {
+  return `No out-of-service entry for ${reason}.`;
+}
+export const EQUIPMENT_UNAVAILABLE_QUANTITY_MESSAGE =
+  "Enter the out-of-service units as a whole number, 0 to clear";
+export const EQUIPMENT_LINE_UNMAPPED_MESSAGE =
+  "Map this line to a catalogue type before reserving.";
+export const EQUIPMENT_TYPE_ID_MESSAGE = "Choose an equipment type";
+export const EQUIPMENT_UNAVAILABILITY_REASON_MESSAGE =
+  "Enter a reason for the out-of-service units";
+
+/** PTR-162 AC1: add a type or change its quantity held. The id selects the path. */
+export const EquipmentTypeInput = z.object({
+  id: z.int32({ error: EQUIPMENT_TYPE_ID_MESSAGE }).positive(EQUIPMENT_TYPE_ID_MESSAGE).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Enter an equipment type")
+    .max(EQUIPMENT_TYPE_MAX_LENGTH, EQUIPMENT_TYPE_MESSAGE),
+  quantityHeld: PositiveWholeNumber(
+    EQUIPMENT_QUANTITY_MESSAGE,
+    "Equipment quantity is larger than this record can store"
+  ),
+});
+
+export type EquipmentTypeValues = z.infer<typeof EquipmentTypeInput>;
+
+export function parseEquipmentTypeInput(data: unknown): EquipmentTypeValues {
+  return parseOrThrow(EquipmentTypeInput, data);
+}
+
+export const EquipmentTypeIdInput = z.object(
+  { id: z.int32({ error: EQUIPMENT_TYPE_ID_MESSAGE }).positive(EQUIPMENT_TYPE_ID_MESSAGE) },
+  { error: EQUIPMENT_TYPE_ID_MESSAGE }
+);
+
+export type EquipmentTypeIdValues = z.infer<typeof EquipmentTypeIdInput>;
+
+export function parseEquipmentTypeId(data: unknown): EquipmentTypeIdValues {
+  return parseOrThrow(EquipmentTypeIdInput, data);
+}
+
+/** PTR-162 AC2: record or change the out-of-service quantity for one type and reason. Enter 0 to clear the reason. */
+export const EquipmentUnavailabilityInput = z.object({
+  equipmentTypeId: z
+    .int32({ error: EQUIPMENT_TYPE_ID_MESSAGE })
+    .positive(EQUIPMENT_TYPE_ID_MESSAGE),
+  reason: z
+    .string({ error: EQUIPMENT_UNAVAILABILITY_REASON_MESSAGE })
+    .trim()
+    .min(1, EQUIPMENT_UNAVAILABILITY_REASON_MESSAGE)
+    .max(EQUIPMENT_NOTES_MAX, ARRANGEMENT_REASON_LENGTH_MESSAGE)
+    .refine(value => !isBlank(value), EQUIPMENT_UNAVAILABILITY_REASON_MESSAGE),
+  quantityUnavailable: z
+    .number({ error: EQUIPMENT_UNAVAILABLE_QUANTITY_MESSAGE })
+    .int(EQUIPMENT_UNAVAILABLE_QUANTITY_MESSAGE)
+    .nonnegative(EQUIPMENT_UNAVAILABLE_QUANTITY_MESSAGE)
+    .max(MAX_INTEGER, "Equipment quantity is larger than this record can store"),
+});
+
+export type EquipmentUnavailabilityValues = z.infer<typeof EquipmentUnavailabilityInput>;
+
+export function parseEquipmentUnavailabilityInput(data: unknown): EquipmentUnavailabilityValues {
+  return parseOrThrow(EquipmentUnavailabilityInput, data);
+}
+
+/** PTR-162 AC5: map a free-text line to a catalogue type so reserve can use it. */
+export const MapEquipmentLineInput = z.object({
+  eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
+  id: EquipmentLineId,
+  equipmentTypeId: z
+    .int32({ error: EQUIPMENT_TYPE_ID_MESSAGE })
+    .positive(EQUIPMENT_TYPE_ID_MESSAGE),
+});
+
+export type MapEquipmentLineValues = z.infer<typeof MapEquipmentLineInput>;
+
+export function parseMapEquipmentLineInput(data: unknown): MapEquipmentLineValues {
+  return parseOrThrow(MapEquipmentLineInput, data);
+}
+
+/** The catalogue form stores values as strings. Parsing converts them to `EquipmentTypeInput`. */
+export const EquipmentTypeFormInput = z
+  .object({ name: z.string(), quantityHeld: z.string() })
+  .transform((values): { name: string; quantityHeld: number } => ({
+    name: values.name,
+    quantityHeld: values.quantityHeld === "" ? Number.NaN : parseWholeNumber(values.quantityHeld),
+  }))
+  .pipe(EquipmentTypeInput.omit({ id: true }));
+
+/** The out-of-service form stores values as strings. The caller adds the type id. */
+export const EquipmentUnavailabilityFormInput = z
+  .object({ reason: z.string(), quantityUnavailable: z.string() })
+  .transform((values): { reason: string; quantityUnavailable: number } => ({
+    reason: values.reason,
+    quantityUnavailable:
+      values.quantityUnavailable === "" ? Number.NaN : parseWholeNumber(values.quantityUnavailable),
+  }))
+  .pipe(EquipmentUnavailabilityInput.omit({ equipmentTypeId: true }));

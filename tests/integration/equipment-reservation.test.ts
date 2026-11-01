@@ -12,11 +12,13 @@ import {
 } from "#/features/equipment-requests/reservations.server";
 import { handleCheckEquipmentAvailability } from "#/features/equipment-requests/availability.server";
 import {
+  handleMapEquipmentLine,
   handleSaveEquipmentLine,
   handleUpdateArrangement,
 } from "#/features/equipment-requests/equipment.server";
 import {
   ARRANGEMENT_RESERVED_MESSAGE,
+  EQUIPMENT_LINE_UNMAPPED_MESSAGE,
   EQUIPMENT_RESERVED_EDIT_MESSAGE,
 } from "#/features/equipment-requests/schema";
 import { handleListEvents } from "#/features/events/records.server";
@@ -1100,7 +1102,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     ).toEqual(noticesBefore);
   });
 
-  it("resolves the catalogue type by name when the line has none yet", async () => {
+  it("refuses an unmapped line even when its item matches a catalogue name", async () => {
     const { equipmentRequestId } = await createEventWithApprovedBooking({
       name: "Name Match Event",
       startsAt: "2026-12-10 10:00:00",
@@ -1110,6 +1112,34 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       item: testEquipmentTypeName,
     });
 
+    await expect(
+      handleReserveEquipment(
+        { equipmentRequestId, quantity: 1 },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: EQUIPMENT_LINE_UNMAPPED_MESSAGE,
+    });
+  });
+
+  it("reserves once the line is mapped to a type (PTR-162 AC5)", async () => {
+    const { eventId, equipmentRequestId } = await createEventWithApprovedBooking({
+      name: "Mapped Line Event",
+      startsAt: "2026-12-10 10:00:00",
+      endsAt: "2026-12-10 12:00:00",
+      itemRequestedQuantity: 1,
+      equipmentTypeId: null,
+      item: testEquipmentTypeName,
+    });
+
+    await handleMapEquipmentLine(
+      { eventId, id: equipmentRequestId, equipmentTypeId: testEquipmentTypeId },
+      session("tech1"),
+      database as never
+    );
     const result = await handleReserveEquipment(
       { equipmentRequestId, quantity: 1 },
       session("tech1"),
@@ -1124,7 +1154,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     expect(line.equipmentTypeId).toBe(testEquipmentTypeId);
   });
 
-  it("refuses a line whose item is not in the catalogue and has no type link", async () => {
+  it("refuses an unmapped line whose item matches no type without a name lookup error", async () => {
     const { equipmentRequestId } = await createEventWithApprovedBooking({
       name: "Name Miss Event",
       startsAt: "2026-12-10 14:00:00",
@@ -1143,8 +1173,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     ).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
-      message:
-        'Cannot reserve equipment: catalogue item "Unregistered Fog Machine" is not registered in equipment catalogue',
+      message: EQUIPMENT_LINE_UNMAPPED_MESSAGE,
     });
   });
 

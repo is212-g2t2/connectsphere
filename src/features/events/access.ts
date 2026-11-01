@@ -320,6 +320,10 @@ export interface EquipmentLineProjection {
   windowChanged?: boolean | undefined;
   /** PTR-42: The latest reduction or release. Shown to Technical Support and Coordinators only. */
   lastRelease?: EquipmentReleaseRecord | null | undefined;
+  /** PTR-162 AC5: the mapped catalogue type, null when the free-text item matches no type. */
+  equipmentTypeId?: number | null | undefined;
+  /** PTR-162 AC3: units short when overlapping reservations exceed held minus out-of-service. */
+  shortfall?: number | null | undefined;
 }
 
 /**
@@ -631,6 +635,8 @@ export function projectEvent(
                   lastRelease: line.lastRelease,
                   venueRequestId: line.venueRequestId,
                   windowChanged: line.windowChanged,
+                  equipmentTypeId: line.equipmentTypeId,
+                  shortfall: line.shortfall,
                 }
               : {}),
           })),

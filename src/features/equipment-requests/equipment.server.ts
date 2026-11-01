@@ -1,7 +1,13 @@
 import { and, count, eq, isNotNull, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { equipmentRequests, equipmentReservations, eventRequests, user } from "#/db/schema";
+import {
+  equipmentRequests,
+  equipmentReservations,
+  equipmentTypes,
+  eventRequests,
+  user,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -13,6 +19,7 @@ import {
   parseArrangementUpdateInput,
   parseCompleteArrangementsInput,
   parseEquipmentLineInput,
+  parseMapEquipmentLineInput,
   parseRecordUnavailableInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
@@ -544,4 +551,41 @@ export async function handleRecordUnavailable(
   });
 
   return updated;
+}
+
+/**
+ * PTR-162 AC5: map a free-text line to a catalogue type so reserve can use it. Lock the lines
+ * so a concurrent reservation cannot commit between the check and the write. Refuse a line
+ * that already holds a reservation; release it first.
+ */
+export async function handleMapEquipmentLine(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseMapEquipmentLineInput(data);
+  return database.transaction(async tx => {
+    const { lines, submitted } = await loadWorkableLines(tx, input.eventId, actor, true);
+    const line = lines.find(row => row.id === input.id);
+    if (!line) throw new NotFoundError("Not Found");
+    if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");
+    if (await lineHoldsReservation(tx, line.id)) {
+      throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
+    }
+    const type = (
+      await tx
+        .select({ id: equipmentTypes.id })
+        .from(equipmentTypes)
+        .where(eq(equipmentTypes.id, input.equipmentTypeId))
+        .limit(1)
+    ).at(0);
+    if (!type) throw new NotFoundError("Not Found");
+    const [updated] = await tx
+      .update(equipmentRequests)
+      .set({ equipmentTypeId: type.id, assignedStaffId: actor.id })
+      .where(eq(equipmentRequests.id, line.id))
+      .returning();
+    await clearArrangementsCompletion(tx, input.eventId);
+    return updated;
+  });
 }

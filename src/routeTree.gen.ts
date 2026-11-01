@@ -23,6 +23,7 @@ import { Route as ApiEventAttachmentsRouteImport } from './routes/api/event-atta
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
 import { Route as AuthenticatedCoordinationIndexRouteImport } from './routes/_authenticated/coordination/index'
+import { Route as AuthenticatedEquipmentTypesIndexRouteImport } from './routes/_authenticated/equipment-types/index'
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
 import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
 import { Route as AuthenticatedEventsEventIdRouteRouteImport } from './routes/_authenticated/events/$eventId/route'
@@ -108,6 +109,12 @@ const AuthenticatedCoordinationIndexRoute =
   AuthenticatedCoordinationIndexRouteImport.update({
     id: '/coordination/',
     path: '/coordination/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEquipmentTypesIndexRoute =
+  AuthenticatedEquipmentTypesIndexRouteImport.update({
+    id: '/equipment-types/',
+    path: '/equipment-types/',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedEventRequestsIndexRoute =
@@ -220,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination/': typeof AuthenticatedCoordinationIndexRoute
+  '/equipment-types/': typeof AuthenticatedEquipmentTypesIndexRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/safety-reviews/': typeof AuthenticatedSafetyReviewsIndexRoute
   '/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
@@ -249,6 +257,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination': typeof AuthenticatedCoordinationIndexRoute
+  '/equipment-types': typeof AuthenticatedEquipmentTypesIndexRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
   '/safety-reviews': typeof AuthenticatedSafetyReviewsIndexRoute
   '/venue-bookings': typeof AuthenticatedVenueBookingsIndexRoute
@@ -281,6 +290,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/_authenticated/coordination/': typeof AuthenticatedCoordinationIndexRoute
+  '/_authenticated/equipment-types/': typeof AuthenticatedEquipmentTypesIndexRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/_authenticated/safety-reviews/': typeof AuthenticatedSafetyReviewsIndexRoute
   '/_authenticated/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
@@ -313,6 +323,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/notifications'
     | '/coordination/'
+    | '/equipment-types/'
     | '/event-requests/'
     | '/safety-reviews/'
     | '/venue-bookings/'
@@ -342,6 +353,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/notifications'
     | '/coordination'
+    | '/equipment-types'
     | '/event-requests'
     | '/safety-reviews'
     | '/venue-bookings'
@@ -373,6 +385,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/notifications'
     | '/_authenticated/coordination/'
+    | '/_authenticated/equipment-types/'
     | '/_authenticated/event-requests/'
     | '/_authenticated/safety-reviews/'
     | '/_authenticated/venue-bookings/'
@@ -495,6 +508,13 @@ declare module '@tanstack/react-router' {
       path: '/coordination'
       fullPath: '/coordination/'
       preLoaderRoute: typeof AuthenticatedCoordinationIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/equipment-types/': {
+      id: '/_authenticated/equipment-types/'
+      path: '/equipment-types'
+      fullPath: '/equipment-types/'
+      preLoaderRoute: typeof AuthenticatedEquipmentTypesIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/event-requests/': {
@@ -630,6 +650,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedVenuesLayoutsRoute: typeof AuthenticatedVenuesLayoutsRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedCoordinationIndexRoute: typeof AuthenticatedCoordinationIndexRoute
+  AuthenticatedEquipmentTypesIndexRoute: typeof AuthenticatedEquipmentTypesIndexRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
   AuthenticatedSafetyReviewsIndexRoute: typeof AuthenticatedSafetyReviewsIndexRoute
   AuthenticatedVenueBookingsIndexRoute: typeof AuthenticatedVenueBookingsIndexRoute
@@ -650,6 +671,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedVenuesLayoutsRoute: AuthenticatedVenuesLayoutsRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedCoordinationIndexRoute: AuthenticatedCoordinationIndexRoute,
+  AuthenticatedEquipmentTypesIndexRoute: AuthenticatedEquipmentTypesIndexRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
   AuthenticatedSafetyReviewsIndexRoute: AuthenticatedSafetyReviewsIndexRoute,
   AuthenticatedVenueBookingsIndexRoute: AuthenticatedVenueBookingsIndexRoute,

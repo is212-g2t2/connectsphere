@@ -11,6 +11,7 @@ export function ArrangementPosition({
     arrangementNotes?: string | null;
     reservedQuantity?: number | null;
     windowChanged?: boolean;
+    shortfall?: number | null;
   };
 }) {
   return (
@@ -24,6 +25,9 @@ export function ArrangementPosition({
         </p>
       )}
       {line.windowChanged && <p className="mt-1 body-sm font-medium">Window changed</p>}
+      {(line.shortfall ?? 0) > 0 && (
+        <p className="mt-1 body-sm font-medium">Short by {line.shortfall}</p>
+      )}
       {line.unavailableReason && (
         <p className="mt-0.5 text-muted-foreground">{`Reason: ${line.unavailableReason}`}</p>
       )}

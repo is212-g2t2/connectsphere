@@ -5,8 +5,8 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /** Repeat the role/function matrix from PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36,
- * PTR-45, PTR-111, PTR-144, and PTR-145 independently of `permissions.ts`. Keep both copies so a
- * permission change must update both places. `Record<Role, …>` makes a new role fail
+ * PTR-45, PTR-111, PTR-144, PTR-145, and PTR-162 independently of `permissions.ts`. Keep both
+ * copies so a permission change must update both places. `Record<Role, …>` makes a new role fail
  * `type:check` first.
  */
 const EXPECTED: Record<
@@ -26,6 +26,7 @@ const EXPECTED: Record<
     venueDecide: boolean;
     equipmentReserve: boolean;
     equipmentRelease: boolean;
+    equipmentTypeManage: boolean;
     vipManage: boolean;
     eventRegistrationRead: boolean;
     safetyReviewRead: boolean;
@@ -47,6 +48,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    equipmentTypeManage: false,
     vipManage: false,
     eventRegistrationRead: false,
     safetyReviewRead: false,
@@ -67,6 +69,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    equipmentTypeManage: false,
     vipManage: true,
     eventRegistrationRead: true,
     safetyReviewRead: false,
@@ -87,6 +90,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    equipmentTypeManage: false,
     vipManage: true,
     eventRegistrationRead: true,
     safetyReviewRead: false,
@@ -107,6 +111,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    equipmentTypeManage: false,
     vipManage: false,
     eventRegistrationRead: false,
     safetyReviewRead: false,
@@ -127,6 +132,7 @@ const EXPECTED: Record<
     venueDecide: true,
     equipmentReserve: false,
     equipmentRelease: false,
+    equipmentTypeManage: false,
     vipManage: false,
     eventRegistrationRead: false,
     safetyReviewRead: false,
@@ -147,6 +153,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: true,
     equipmentRelease: true,
+    equipmentTypeManage: true,
     vipManage: false,
     eventRegistrationRead: false,
     safetyReviewRead: false,
@@ -168,6 +175,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    equipmentTypeManage: false,
     vipManage: false,
     eventRegistrationRead: false,
     safetyReviewRead: true,
@@ -191,6 +199,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
     expect(can(role, { venue_request: ["decide"] })).toBe(EXPECTED[role].venueDecide);
     expect(can(role, { equipment: ["reserve"] })).toBe(EXPECTED[role].equipmentReserve);
     expect(can(role, { equipment: ["release"] })).toBe(EXPECTED[role].equipmentRelease);
+    expect(can(role, { equipment_type: ["manage"] })).toBe(EXPECTED[role].equipmentTypeManage);
     expect(can(role, { vip_registration: ["manage"] })).toBe(EXPECTED[role].vipManage);
     expect(can(role, { event_registration: ["read"] })).toBe(EXPECTED[role].eventRegistrationRead);
     expect(can(role, { safety_review: ["read"] })).toBe(EXPECTED[role].safetyReviewRead);
