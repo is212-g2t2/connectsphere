@@ -66,6 +66,23 @@ test("[PTR-28-TC02-LIVE][AC1] technical support staff has read-only calendar acc
   await expect(page.getByLabel("Venue", { exact: true })).toBeVisible();
 });
 
+test("[PTR-161] month arrows query the whole displayed month", async ({ page }) => {
+  await signInAsStaff(page, "event_coordinator");
+  await page.goto("/venues/availability");
+  await selectLiveRange(page, "Harbour Hall", "2026-11-01", "2026-11-30");
+
+  await page.getByRole("button", { name: "Go to the Next Month" }).click();
+
+  await expect(page).toHaveURL(/startDate=2026-12-01/);
+  await expect(page).toHaveURL(/endDate=2026-12-31/);
+  await expect(page.getByLabel("Start date", { exact: true })).toHaveValue("2026-12-01");
+  await expect(page.getByLabel("End date", { exact: true })).toHaveValue("2026-12-31");
+  await expect(page.getByText("December 2026", { exact: true })).toBeVisible();
+  const results = page.getByRole("region", { name: "Availability results" });
+  await expect(results.getByText("1 Dec 2026 – 31 Dec 2026", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calendar for December 2026" })).toBeFocused();
+});
+
 test("[AC1] a venue id no row holds answers the router's not-found page", async ({ page }) => {
   await signInAsStaff(page, "venue_staff");
   await page.goto("/venues/availability?venueId=999999&startDate=2027-03-15&endDate=2027-03-16");

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 
+import { E2E_BASE_URL } from "./base-url";
 import { waitForHydration } from "./hydration";
 
 test.describe("Auth Lifecycle Loop", () => {
@@ -25,6 +26,7 @@ test.describe("Auth Lifecycle Loop", () => {
     await page.locator("#name").fill("E2E User");
     await fillCredentials();
     await page.locator("#confirmPassword").fill(testPassword);
+    await page.locator("#role-attendee").check();
     await page.getByRole("button", { name: "Create account" }).click();
 
     // Verify signup confirmation heading
@@ -67,14 +69,14 @@ test.describe("Auth Lifecycle Loop", () => {
   test("rejects a wrong password with an inline error and stays on the form", async ({ page }) => {
     const email = `e2e-wrong-password-${Date.now()}@example.com`;
     const response = await page.request.post("/api/auth/sign-up/email", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
       data: { name: "Wrong Password", email, password: "Password123!" },
     });
     expect(response.ok(), await response.text()).toBe(true);
 
     // Sign-up creates a session, and `/login` redirects signed-in users. Clear the session first.
     const signOut = await page.request.post("/api/auth/sign-out", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
     });
     expect(signOut.ok(), await signOut.text()).toBe(true);
 

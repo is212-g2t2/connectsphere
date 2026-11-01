@@ -6,6 +6,7 @@ import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import type { ClarificationField, EventRequestDraftValues } from "#/features/event-requests/schema";
 import { replyToClarification } from "#/features/event-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
 type ReplyableClarification = {
@@ -17,10 +18,13 @@ export function ClarificationReplyForm({
   requestId,
   clarification,
   initialValues,
+  layouts,
 }: {
   requestId: number;
   clarification: ReplyableClarification;
   initialValues?: EventRequestDraftValues;
+  /** The maintained room layout list, from the route loader. The form reads it (PTR-161 AC1). */
+  layouts?: readonly RoomLayout[];
 }) {
   const router = useRouter();
   const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
@@ -59,6 +63,7 @@ export function ClarificationReplyForm({
     <>
       <EventRequestForm
         initialValues={initialValues}
+        layouts={layouts}
         editableFields={clarification.permittedFields}
         idPrefix={`clarification-${clarification.id}`}
         saveLabel={saved ? "Reply sent" : "Send reply"}

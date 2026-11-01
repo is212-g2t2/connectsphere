@@ -129,7 +129,7 @@ test("the Coordinator applies a change request through the event information for
   await expect(
     coordinator.getByRole("heading", { name: "Applying the Organiser's change request" })
   ).toBeVisible();
-  await coordinator.getByLabel("Event name (required)").fill(`${name} Dinner`);
+  await coordinator.getByLabel("Event name").fill(`${name} Dinner`);
   await coordinator.getByRole("button", { name: "Save and mark applied" }).click();
 
   await expect(
@@ -179,7 +179,7 @@ test("the Coordinator confirms the significant-change warning when applying an a
   await expect(
     coordinator.getByRole("heading", { name: "Applying the Organiser's change request" })
   ).toBeVisible();
-  await coordinator.getByLabel("Expected attendance (required)").fill("80");
+  await coordinator.getByLabel("Expected attendance").fill("80");
   await coordinator.getByRole("button", { name: "Save and mark applied" }).click();
 
   // Expected attendance is significant. The warning comes first. The event holds nothing.

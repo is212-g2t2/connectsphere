@@ -21,6 +21,7 @@ import {
 } from "#/features/event-requests/schema";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { declineEventChangeRequest } from "#/features/events/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
 
@@ -93,7 +94,14 @@ function useChangeRequestApply(request: CoordinationRequest) {
  * one (PTR-22), and the apply of a waiting change request in every status the request could be
  * raised in (PTR-52). Outside the direct-edit statuses it shows only while an apply is open.
  */
-export function CoordinatorInformationForm({ request }: { request: CoordinationRequest }) {
+export function CoordinatorInformationForm({
+  request,
+  layouts,
+}: {
+  request: CoordinationRequest;
+  /** The maintained room layout list, from the route loader. The form reads it (PTR-161 AC1). */
+  layouts?: readonly RoomLayout[];
+}) {
   const { applying, setApplyingId, setInformationDirty } = useChangeRequestApply(request);
   if (!canUpdateEventInformation(request.status) && applying === null) return null;
 
@@ -110,6 +118,7 @@ export function CoordinatorInformationForm({ request }: { request: CoordinationR
       applying={applying}
       onApplyEnd={endApply}
       onDirtyChange={setInformationDirty}
+      layouts={layouts}
     />
   );
 }

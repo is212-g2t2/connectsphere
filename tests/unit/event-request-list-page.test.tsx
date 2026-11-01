@@ -27,10 +27,12 @@ vi.mock("@tanstack/react-router", () => ({
     children,
     to,
     params,
+    ...rest
   }: {
     children: React.ReactNode;
     to: string;
     params?: Record<string, string>;
+    [key: string]: unknown;
   }) => (
     <a
       href={
@@ -41,6 +43,7 @@ vi.mock("@tanstack/react-router", () => ({
               .replace("$eventId", params.eventId)
           : to
       }
+      {...rest}
     >
       {children}
     </a>
@@ -223,6 +226,24 @@ describe("EventRequestListPage draft actions (PTR-12)", () => {
     );
     expect(within(rows[0]).queryByRole("link", { name: "Resume" })).toBeNull();
     expect(within(rows[0]).queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("offers View on a submitted request, linking to the event, and none on a draft", () => {
+    render(<EventRequestListPage requests={[submitted, draft]} />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByRole("link", { name: "View" }).getAttribute("href")).toBe(
+      "/events/42"
+    );
+    expect(within(rows[1]).queryByRole("link", { name: "View" })).toBeNull();
+  });
+
+  it("styles Delete with the danger tone and no border chrome", () => {
+    render(<EventRequestListPage requests={[draft]} />);
+
+    const button = screen.getByRole("button", { name: "Delete" });
+    expect(button.className).toContain("text-destructive");
+    expect(button.classList.contains("border-destructive")).toBe(false);
   });
 
   it("keeps the draft and calls nothing when the delete is cancelled (AC3)", async () => {

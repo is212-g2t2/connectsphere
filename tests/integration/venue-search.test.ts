@@ -8,7 +8,7 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleSearchVenues } from "#/features/venues/records.server";
 import type { VenueBookingLoader } from "#/features/venues/records.server";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
 
 const users = {
   organiser: {
@@ -193,13 +193,12 @@ describe("venue search handler (PTR-29)", () => {
       loadBookings
     );
 
-    expect(calls).toEqual([
-      {
-        venueIds: expect.arrayContaining([hall.id]),
-        startsAt: "2027-03-15 00:00:00",
-        endsAt: "2027-03-16 00:00:00",
-      },
-    ]);
+    // The shared read widens past the requested day by the largest candidate buffers, so
+    // assert coverage rather than exact bounds: another venue's buffers widen the window.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.venueIds).toEqual(expect.arrayContaining([hall.id]));
+    expect(calls[0]?.startsAt <= "2027-03-15 00:00:00").toBe(true);
+    expect(calls[0]?.endsAt >= "2027-03-16 00:00:00").toBe(true);
     expect(result.venues.map(venue => venue.id)).not.toContain(hall.id);
     expect(result.unsuitable.find(({ venue }) => venue.id === hall.id)?.failures).toEqual([
       { criterion: "booking", message: "Booked for Annual dinner on 2027-03-15" },
@@ -324,6 +323,128 @@ describe("venue search handler (PTR-29)", () => {
     expect(afterBuffer.venues.map(row => row.name)).toEqual([venueNames[0]]);
   });
 
+  it("reports unsuitable with the booking reason for a window approval would refuse solely because of the venue buffers (PTR-161 AC8)", async () => {
+    const [hall] = await database
+      .select({ id: schema.venues.id })
+      .from(schema.venues)
+      .where(eq(schema.venues.name, venueNames[0]));
+    // The venue holds 60 minutes setup and turnaround. The booking stores no buffers, so its
+    // occupied period is exactly 10:00–12:00. Approval expands the candidate window
+    // (`checkVenueFree`/`overlapsPeriod`, ADR-7): 12:30–13:00 becomes 11:30–14:00 and overlaps
+    // the booking, while 13:00–14:00 becomes 12:00–15:00 and only touches it.
+    await database
+      .update(schema.venues)
+      .set({ setupMinutes: 60, turnaroundMinutes: 60 })
+      .where(eq(schema.venues.id, hall.id));
+    const [booking] = await database
+      .insert(schema.venueRequests)
+      .values({
+        id: crypto.randomUUID(),
+        eventId,
+        venueId: hall.id,
+        requestedById: users.coordinator.id,
+        startsAt: "2027-03-15 10:00:00",
+        endsAt: "2027-03-15 12:00:00",
+        status: "approved",
+      })
+      .returning({ id: schema.venueRequests.id });
+    await database.insert(schema.venueOccupancy).values({
+      venueId: hall.id,
+      eventId,
+      venueRequestId: booking.id,
+      startsAt: "2027-03-15 10:00:00",
+      endsAt: "2027-03-15 12:00:00",
+      setupMinutes: 0,
+      turnaroundMinutes: 0,
+    });
+
+    const result = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "12:30", endTime: "13:00", location: "East Wing" },
+      session(users.coordinator),
+      database as never
+    );
+    expect(result.venues.map(row => row.name)).not.toContain(venueNames[0]);
+    expect(result.unsuitable.find(({ venue }) => venue.name === venueNames[0])?.failures).toEqual([
+      { criterion: "booking", message: "Booked for another event on 2027-03-15" },
+    ]);
+
+    const later = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "13:00", endTime: "14:00", location: "East Wing" },
+      session(users.coordinator),
+      database as never
+    );
+    expect(later.venues.map(row => row.name)).toContain(venueNames[0]);
+  });
+
+  it("refuses windows whose buffers reach a booking outside the requested date (PTR-161 AC8)", async () => {
+    const [hall] = await database
+      .select({ id: schema.venues.id })
+      .from(schema.venues)
+      .where(eq(schema.venues.name, venueNames[0]));
+    // The edge windows sit outside default hours (00:30 and past 22:00), so run this venue
+    // all day: refusal then comes from the buffer alone, not from closing time.
+    const allDay = {
+      mon: { opens: "00:00", closes: "23:59" },
+      tue: { opens: "00:00", closes: "23:59" },
+      wed: { opens: "00:00", closes: "23:59" },
+      thu: { opens: "00:00", closes: "23:59" },
+      fri: { opens: "00:00", closes: "23:59" },
+      sat: { opens: "00:00", closes: "23:59" },
+      sun: { opens: "00:00", closes: "23:59" },
+    };
+    await database
+      .update(schema.venues)
+      .set({ setupMinutes: 60, turnaroundMinutes: 60, operatingHours: allDay })
+      .where(eq(schema.venues.id, hall.id));
+    async function approveBooking(startsAt: string, endsAt: string) {
+      const [booking] = await database
+        .insert(schema.venueRequests)
+        .values({
+          id: crypto.randomUUID(),
+          eventId,
+          venueId: hall.id,
+          requestedById: users.coordinator.id,
+          startsAt,
+          endsAt,
+          status: "approved",
+        })
+        .returning({ id: schema.venueRequests.id });
+      await database.insert(schema.venueOccupancy).values({
+        venueId: hall.id,
+        eventId,
+        venueRequestId: booking.id,
+        startsAt,
+        endsAt,
+        setupMinutes: 0,
+        turnaroundMinutes: 0,
+      });
+    }
+    // Both bookings sit outside the searched day. Each candidate's buffer reaches one of them,
+    // and approval (`checkVenueFree`/`overlapsPeriod`) refuses the same windows.
+    await approveBooking("2027-03-14 22:00:00", "2027-03-14 23:45:00");
+    await approveBooking("2027-03-16 00:00:00", "2027-03-16 01:00:00");
+
+    const early = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "00:30", endTime: "01:30", location: "East Wing" },
+      session(users.coordinator),
+      database as never
+    );
+    expect(early.venues.map(row => row.name)).not.toContain(venueNames[0]);
+    expect(early.unsuitable.find(({ venue }) => venue.name === venueNames[0])?.failures).toEqual([
+      { criterion: "booking", message: "Booked for another event on 2027-03-14" },
+    ]);
+
+    const late = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "22:00", endTime: "23:30", location: "East Wing" },
+      session(users.coordinator),
+      database as never
+    );
+    expect(late.venues.map(row => row.name)).not.toContain(venueNames[0]);
+    expect(late.unsuitable.find(({ venue }) => venue.name === venueNames[0])?.failures).toEqual([
+      { criterion: "booking", message: "Booked for another event on 2027-03-16" },
+    ]);
+  });
+
   it("prefills filters from an assigned event and applies them immediately", async () => {
     const result = await handleSearchVenues(
       { eventId },
@@ -345,6 +466,32 @@ describe("venue search handler (PTR-29)", () => {
     });
     // The prefilled venue must match the request's hotel window on the same day.
     expect(result.venues.map(venue => venue.name)).toContain(venueNames[0]);
+  });
+
+  it("ignores an event layout preference that names no maintained layout (PTR-161 AC7)", async () => {
+    await database
+      .update(schema.eventRequests)
+      .set({ roomLayoutPreference: "Stadium concert" })
+      .where(eq(schema.eventRequests.id, eventId));
+
+    const result = await handleSearchVenues(
+      { eventId },
+      session(users.coordinator),
+      database as never
+    );
+
+    expect(result.filters.layout).toBeUndefined();
+    expect(result.venues.map(venue => venue.name)).toContain(venueNames[0]);
+  });
+
+  it("still refuses an explicitly supplied layout that names no maintained layout", async () => {
+    await expect(
+      handleSearchVenues(
+        { eventId, layout: "Stadium concert" },
+        session(users.coordinator),
+        database as never
+      )
+    ).rejects.toThrow(LAYOUT_MESSAGE);
   });
 
   it("prefills a cross-midnight event but matches no venue", async () => {

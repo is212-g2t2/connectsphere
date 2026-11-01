@@ -71,7 +71,7 @@ export function RequestCancellationAction({
   return (
     <div className="mt-5 flex flex-col items-start gap-2">
       <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <AlertDialogTrigger render={<Button disabled={requesting} />}>
+        <AlertDialogTrigger render={<Button variant="destructive" disabled={requesting} />}>
           Request cancellation
         </AlertDialogTrigger>
         <AlertDialogContent size="sm">

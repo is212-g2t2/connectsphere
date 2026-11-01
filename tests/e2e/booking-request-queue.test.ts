@@ -308,8 +308,14 @@ test("[PTR-138] Venue Staff decide one of two pending requests on one event and 
     // approved booking stays on the card because this staff member decided it.
     await page.goto("/dashboard");
     await waitForHydration(page);
-    const approvedEntry = page.getByRole("listitem").filter({ hasText: venueNames[0] });
-    const pendingEntry = page.getByRole("listitem").filter({ hasText: venueNames[1] });
+    const approvedEntry = page
+      .getByRole("list", { name: "Events" })
+      .locator(":scope > li")
+      .filter({ hasText: venueNames[0] });
+    const pendingEntry = page
+      .getByRole("list", { name: "Events" })
+      .locator(":scope > li")
+      .filter({ hasText: venueNames[1] });
     await expect(approvedEntry).toContainText("11 May 2037");
     await expect(approvedEntry).toContainText(/10:00\s?–\s?11:00/);
     await expect(approvedEntry).toContainText("Approved");

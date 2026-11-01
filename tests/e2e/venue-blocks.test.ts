@@ -31,7 +31,7 @@ async function createVenue(page: Page, name: string): Promise<number> {
   await page.getByLabel("Venue name", { exact: true }).fill(name);
   await page.getByLabel("Location", { exact: true }).fill("Level 9, Playwright Wing");
   await page.getByLabel("Maximum capacity", { exact: true }).fill("25");
-  await page.getByLabel("Facilities", { exact: true }).fill("Projector, Whiteboard");
+  await page.getByLabel("Facilities (optional)", { exact: true }).fill("Projector, Whiteboard");
   await page.getByRole("checkbox", { name: "Theatre" }).click();
   await page.getByRole("button", { name: "Create venue" }).click();
 

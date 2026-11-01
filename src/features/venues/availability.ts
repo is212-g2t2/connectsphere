@@ -135,6 +135,28 @@ export function openingPeriods(
   return periods;
 }
 
+/**
+ * Whether the venue takes no bookings on a civil day. A missing weekday key or a `null`
+ * range counts as closed, so a half-filled record fails shut instead of showing a free day.
+ */
+export function isClosedOn(operatingHours: OperatingHours, civilDate: string): boolean {
+  const weekday = WEEKDAYS[(new Date(`${civilDate}T00:00:00.000Z`).getUTCDay() + 6) % 7];
+  return !(weekday in operatingHours) || operatingHours[weekday] === null;
+}
+
+/** Every closed civil day in the inclusive range. `nextCivilDate` refuses a bad boundary. */
+export function closedDaysInRange(
+  operatingHours: OperatingHours,
+  startDate: string,
+  endDate: string
+): string[] {
+  const days: string[] = [];
+  for (let date = startDate; date <= endDate; date = nextCivilDate(date)) {
+    if (isClosedOn(operatingHours, date)) days.push(date);
+  }
+  return days;
+}
+
 export interface AvailabilityPeriod {
   /** Use floating venue-local timestamps. */
   startsAt: string;

@@ -2,48 +2,57 @@ import * as Sentry from "@sentry/tanstackstart-react";
 import * as React from "react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 
-import { Page } from "#/components/layout/page";
+import { Page, PageHeader } from "#/components/layout/page";
 import { RootDocument } from "#/components/layout/root-document";
+import { buttonVariants } from "#/components/ui/button";
+import { cn } from "#/lib/utils";
 
 interface ErrorPageProps {
   error: unknown;
   reset?: () => void;
   title?: string;
+  /** The human sentence under the title. Defaults to a generic recovery line. */
+  description?: string;
 }
 
-export function ErrorPage({ error, reset, title = "Something went wrong" }: ErrorPageProps) {
+export function ErrorPage({
+  error,
+  reset,
+  title = "Something went wrong",
+  description = "Something broke on our side. Try again, or head back to safety.",
+}: ErrorPageProps) {
   const message = error instanceof Error ? error.message : String(error);
 
   return (
     <Page width="page">
-      <div className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col items-center justify-center">
-        <div className="w-full space-y-8 animate-in fade-in duration-500">
-          <div className="space-y-3">
-            <p className="eyebrow text-muted-foreground">Error</p>
-            <h1 className="display-h1">{title}</h1>
-          </div>
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center">
+        <div className="animate-in fade-in duration-500">
+          <PageHeader eyebrow="Error" title={title} description={description} />
 
-          <pre className="max-h-48 overflow-auto rounded-md border border-border bg-card p-4 font-mono mono break-words whitespace-pre-wrap text-muted-foreground">
-            {message}
-          </pre>
-
-          <div className="flex flex-col items-start gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {reset && (
-              <button
-                type="button"
-                onClick={reset}
-                className="cursor-pointer label underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              >
+              <button type="button" onClick={reset} className={cn(buttonVariants())}>
                 Try again
               </button>
             )}
-            <a
-              href="/"
-              className="label underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            >
+            <a href="/" className={cn(buttonVariants({ variant: "secondary" }))}>
               Back to home
             </a>
+            <a href="/dashboard" className={cn(buttonVariants({ variant: "ghost" }))}>
+              Go to dashboard
+            </a>
           </div>
+
+          {import.meta.env.DEV ? (
+            <details className="mt-8">
+              <summary className="cursor-pointer label text-muted-foreground">
+                Error details
+              </summary>
+              <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-border bg-card p-4 font-mono mono break-words whitespace-pre-wrap text-muted-foreground">
+                {message}
+              </pre>
+            </details>
+          ) : null}
         </div>
       </div>
     </Page>
@@ -76,7 +85,11 @@ export function RootErrorPage(props: ErrorComponentProps) {
 export function RootNotFoundPage() {
   return (
     <RootDocument meta={<meta name="robots" content="noindex, nofollow" />}>
-      <ErrorPage error="The page you are looking for does not exist." title="404 - Not Found" />
+      <ErrorPage
+        error="The page you are looking for does not exist."
+        title="404 - Not Found"
+        description="The page you are looking for does not exist."
+      />
     </RootDocument>
   );
 }

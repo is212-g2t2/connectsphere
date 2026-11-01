@@ -280,7 +280,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(
       editable.container
         .querySelector("#details")
-        ?.contains(screen.getByLabelText("Event name (required)"))
+        ?.contains(screen.getByRole("textbox", { name: "Event name" }))
     ).toBe(true);
     editable.unmount();
 
@@ -296,7 +296,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(
       review.container
         .querySelector("#changes")
-        ?.contains(screen.getByLabelText("Event name (required)"))
+        ?.contains(screen.getByRole("textbox", { name: "Event name" }))
     ).toBe(true);
   });
 
@@ -320,7 +320,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     const user = userEvent.setup();
     renderPage();
     await settleSections();
-    expect(screen.queryByLabelText("Event name (required)")).toBeNull();
+    expect(screen.queryByLabelText("Event name")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
 
@@ -335,7 +335,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     ).toBe(true);
     expect(screen.getByText("Being applied in the event information form.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Decline change request #1" })).toBeNull();
-    const name = screen.getByLabelText("Event name (required)");
+    const name = screen.getByLabelText("Event name");
     await user.clear(name);
     await user.type(name, "Annual Gala Dinner");
     await user.click(screen.getByRole("button", { name: "Save and mark applied" }));
@@ -349,7 +349,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       data: { id: 7, amendments: { eventName: "Annual Gala Dinner" }, changeRequestId: 31 },
     });
     expect(invalidate).toHaveBeenCalled();
-    expect(screen.queryByLabelText("Event name (required)")).toBeNull();
+    expect(screen.queryByLabelText("Event name")).toBeNull();
     // The re-read removes the applied request from the card. Focus returns to the card.
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { name: "Change requests awaiting your decision" })
@@ -371,7 +371,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
-    const attendance = screen.getByLabelText("Expected attendance (required)");
+    const attendance = screen.getByLabelText("Expected attendance");
     await user.clear(attendance);
     await user.type(attendance, "150");
     await user.click(screen.getByRole("button", { name: "Save and mark applied" }));
@@ -419,7 +419,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     await user.click(screen.getByRole("button", { name: "Cancel applying" }));
 
-    expect(screen.queryByLabelText("Event name (required)")).toBeNull();
+    expect(screen.queryByLabelText("Event name")).toBeNull();
     expect(screen.getByRole("button", { name: "Apply change request #1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
     expect(document.activeElement).toBe(
@@ -457,7 +457,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
     ).toBe(false);
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
 
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
@@ -485,7 +485,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
     ).toBe(true);
@@ -504,7 +504,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "Apply the change request" })).toBeNull();
-    expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
+    expect(screen.queryByLabelText("Purpose")).toBeNull();
     await waitFor(() =>
       expect(
         screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
@@ -519,10 +519,10 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit event information" }));
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.type(screen.getByLabelText("Purpose"), " dinner");
     rerender(<EventDetailPage data={coordinatorPage({ changeRequests: [declined] })} />);
 
-    expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
+    expect(screen.queryByLabelText("Purpose")).toBeNull();
     expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
   });
 
@@ -561,7 +561,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
-    const attendance = screen.getByLabelText("Expected attendance (required)");
+    const attendance = screen.getByLabelText("Expected attendance");
     await user.clear(attendance);
     await user.type(attendance, "150");
     await user.click(screen.getByRole("button", { name: "Save and mark applied" }));

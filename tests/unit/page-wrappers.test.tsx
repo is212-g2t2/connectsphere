@@ -12,8 +12,10 @@ import { LandingPage } from "#/features/landing/components/landing-page";
  * passing `token` or `error`. The form tests cannot catch that breakage.
  */
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
+  Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
   ),
   useNavigate: () => vi.fn<() => void>(),
   useRouter: () => ({ invalidate: vi.fn<() => Promise<void>>() }),
@@ -23,6 +25,7 @@ vi.mock("#/lib/auth-client", () => ({
   authClient: {
     signIn: { email: vi.fn<() => Promise<{ data: null; error: null }>>() },
     signUp: { email: vi.fn<() => Promise<{ data: null; error: null }>>() },
+    sendVerificationEmail: vi.fn<() => Promise<{ data: null; error: null }>>(),
     requestPasswordReset: vi.fn<() => Promise<{ data: null; error: null }>>(),
     resetPassword: vi.fn<() => Promise<{ data: null; error: null }>>(),
   },
@@ -41,6 +44,16 @@ describe("LoginPage", () => {
     expect(screen.getByRole("heading", { name: "Welcome back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /sign in/i })).toBeTruthy();
   });
+
+  it("wraps the card in the shared auth shell trust chrome", () => {
+    const { container } = render(<LoginPage />);
+
+    expect(container.querySelector('[aria-label="ConnectSphere home"]')).not.toBeNull();
+    expect(screen.getByText(/contact your administrator/i)).toBeTruthy();
+    // No Terms or Privacy Policy page exists, so the shell must not promise one.
+    expect(screen.queryByText(/terms/i)).toBeNull();
+    expect(screen.queryByText(/privacy/i)).toBeNull();
+  });
 });
 
 describe("SignupPage", () => {
@@ -50,7 +63,8 @@ describe("SignupPage", () => {
     expect(container.querySelector("main")?.className).toContain("max-w-page");
     expect(authCard(container)).not.toBeNull();
     expect(screen.getByText("Create an account")).toBeTruthy();
-    expect(screen.getByLabelText(/^role$/i)).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /attendee/i })).toBeTruthy();
+    expect(screen.getByText(/You cannot change this later/)).toBeTruthy();
   });
 });
 
@@ -79,15 +93,27 @@ describe("ResetPasswordPage", () => {
 });
 
 describe("LandingPage", () => {
-  it("renders the hero copy and links to both auth entry points", () => {
+  it("renders the outcome headline and keeps the SEO description", () => {
     const { container } = render(<LandingPage />);
 
     expect(container.querySelector("main")?.className).toContain("max-w-page");
-    expect(screen.getByRole("heading", { level: 1, name: "ConnectSphere" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /plan events and book venues/i })
+    ).toBeTruthy();
     expect(screen.getByText(/Event planning and venue booking/i)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Create an account" }).getAttribute("href")).toBe(
       "/signup"
     );
     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
+  });
+
+  it("names the self-assignable roles and says staff accounts are provisioned", () => {
+    render(<LandingPage />);
+
+    expect(screen.getByText(/attendee or an event organiser/i)).toBeTruthy();
+    expect(screen.getByText(/provisioned by an administrator/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Request an event" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Find a venue" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Stay coordinated" })).toBeTruthy();
   });
 });

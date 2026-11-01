@@ -243,16 +243,16 @@ describe("venue section", () => {
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
 
-  it("gives each entry its own named description list beside the requirements", () => {
+  it("gives each entry its own named description list without a requirements mirror", () => {
     const { container } = renderVenue("coordinator", {
       status: "planning",
       venueRequests: [{ ...pendingEntry }, { ...approvedEntry }],
     });
 
-    // The requirements list and one list per entry sit side by side; no list nests in another.
+    // One list per entry; no list nests in another. The request details section carries the
+    // requirements, so the venue block lists the entries alone.
     const lists = [...container.querySelectorAll("dl")];
     expect(lists.map(list => list.getAttribute("aria-label"))).toEqual([
-      null,
       "Harbor Hall, 5 Dec 2026, 17:00 – 21:00",
       "Second Hall, 6 Dec 2026, 10:00 – 12:00",
     ]);
@@ -366,11 +366,21 @@ describe("venue section", () => {
     expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
   });
 
-  it("always shows approved, planning and confirmed events", () => {
+  it("shows settled events with venue content and hides bare requirement records", () => {
+    const venueRequests = [{ ...pendingEntry }];
     for (const status of ["approved", "planning", "confirmed"] as const) {
-      expect(isVenueVisible("coordinator", { status })).toBe(true);
-      expect(isVenueVisible("organiser", { status })).toBe(true);
+      expect(isVenueVisible("coordinator", { status, venueRequests })).toBe(true);
+      expect(isVenueVisible("organiser", { status, venueRequests })).toBe(true);
     }
+    // Requirements alone mirror the request details or event information section, so the
+    // venue block hides while the event carries no requests — except on the Coordinator's
+    // searchable statuses, where the block carries the venue search action.
+    for (const status of ["approved", "planning"] as const) {
+      expect(isVenueVisible("coordinator", { status })).toBe(true);
+      expect(isVenueVisible("organiser", { status })).toBe(false);
+    }
+    expect(isVenueVisible("coordinator", { status: "confirmed" })).toBe(false);
+    expect(isVenueVisible("organiser", { status: "confirmed" })).toBe(false);
   });
 
   it("hides rejected, cancelled and completed events", () => {

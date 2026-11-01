@@ -73,12 +73,17 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
   // Completed events take no activity writes. The page offers no withdrawal for them.
   const isCompleted = details.status === "completed";
   const availability = details.registrationAvailability;
+  // Show the window in chronological order; the close date still follows the open date.
   const period =
     details.registrationOpensAt && details.registrationClosesAt ? (
-      <p className="mt-1 body-sm text-muted-foreground">
-        Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
-        {formatLocalDateTime(details.registrationClosesAt)}
-      </p>
+      <>
+        <p className="mt-1 body-sm text-muted-foreground">
+          Registration opens {formatLocalDateTime(details.registrationOpensAt)}
+        </p>
+        <p className="mt-1 body-sm text-muted-foreground">
+          Registration closes {formatLocalDateTime(details.registrationClosesAt)}
+        </p>
+      </>
     ) : null;
   // PTR-45 AC10: Places taken, against the lower of the registration capacity and the venue
   // places left after VIPs (PTR-111).
@@ -94,25 +99,27 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
       </Link>
       <div className="mt-6 grid gap-8 split:grid-cols-[300px_minmax(0,1fr)] split:gap-12">
         <aside>
-          <div className="relative aspect-square overflow-hidden rounded-2xl cover-art shadow-card">
+          <div className="relative aspect-video overflow-hidden rounded-2xl cover-art shadow-card">
             <div className="absolute inset-0 bg-black/55" aria-hidden="true" />
+            {/* The h1 below repeats the name, so the overlay caption stays a desktop accent. */}
             <p
               aria-hidden="true"
-              className="absolute bottom-0 left-0 p-5 display-h3 font-semibold text-white"
+              className="absolute bottom-0 left-0 hidden p-5 display-h3 font-semibold text-white split:block"
             >
               {details.name ?? "Event"}
             </p>
           </div>
         </aside>
 
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+        {/* Date and venue lead at every width; the 16:9 cover already shortens the page. */}
+        <div className="flex min-w-0 flex-col">
+          <div className="order-1 flex items-center gap-2">
             <EventRequestStatusBadge status={details.status} />
           </div>
-          <h1 className="mt-3 font-semibold event-title">{details.name ?? "Event"}</h1>
+          <h1 className="order-1 mt-3 font-semibold event-title">{details.name ?? "Event"}</h1>
 
           {date ? (
-            <div className="mt-6 flex items-start gap-3">
+            <div className="order-2 mt-6 flex items-start gap-3 split:order-2">
               <span className="flex size-12 shrink-0 flex-col items-center justify-center rounded-md border border-input bg-card">
                 <span className="caption tracking-wide text-muted-foreground">
                   {dateBlockParts(date).month}
@@ -135,13 +142,13 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
               </div>
             </div>
           ) : (
-            <p className="mt-6 font-semibold">Date to be confirmed</p>
+            <p className="order-2 mt-6 font-semibold split:order-2">Date to be confirmed</p>
           )}
 
           {/* Leave the venue row out for a cancelled event. Once its booking is released, the row
               would say that the venue is still to be confirmed. */}
           {isCancelled ? null : (
-            <div className="mt-4 flex items-start gap-3">
+            <div className="order-2 mt-4 flex items-start gap-3 split:order-2">
               <span className="flex size-12 shrink-0 items-center justify-center rounded-md border border-input bg-card">
                 <MapPin className="size-4" />
               </span>
@@ -160,7 +167,7 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
             </div>
           )}
 
-          <Card className="mt-6">
+          <Card className="order-3 mt-6 split:order-3">
             <CardContent>
               <p className="label text-muted-foreground">Registration</p>
               {isCancelled ? (
@@ -223,7 +230,7 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
           </Card>
 
           {details.description ? (
-            <section aria-label="About Event" className="mt-6">
+            <section aria-label="About Event" className="order-4 mt-6">
               <h2 className="font-semibold display-h3">About Event</h2>
               <p className="mt-2 max-w-prose body-sm whitespace-pre-line text-muted-foreground">
                 {details.description}

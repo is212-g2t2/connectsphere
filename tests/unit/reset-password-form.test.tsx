@@ -66,6 +66,14 @@ describe("ResetPasswordForm component", () => {
     });
   });
 
+  it("shows the live password rules and reveal control on the new-password field", async () => {
+    render(<ResetPasswordForm token="tok-123" />);
+
+    expect(screen.getByRole("list", { name: /password rules/i })).toBeTruthy();
+    const toggle = screen.getByRole("button", { name: /show password/i });
+    expect(toggle.getAttribute("type")).toBe("button");
+  });
+
   it("rejects a new password shorter than 8 characters", async () => {
     const { authClient } = await import("#/lib/auth-client");
     const user = userEvent.setup();

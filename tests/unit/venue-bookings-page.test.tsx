@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { VenueBookingsPage } from "#/features/venue-requests/components/venue-bookings-page";
+import {
+  groupBookingsByMonth,
+  monthGroupLabel,
+  VenueBookingsPage,
+} from "#/features/venue-requests/components/venue-bookings-page";
 import type { VenueBooking } from "#/features/venue-requests/server-fns";
 
 const { amendVenueBooking, releaseVenueBooking, invalidate, success } = vi.hoisted(() => ({
@@ -39,6 +43,17 @@ const venues = [
   { id: 3, name: "Orchid Room" },
   { id: 4, name: "Harbour Hall" },
 ];
+
+const decemberBooking: VenueBooking = {
+  id: "booking-002",
+  eventId: 45,
+  eventName: "Winter gala",
+  venueId: 4,
+  venueName: "Harbour Hall",
+  assignedStaffId: "venue-staff-001",
+  startsAt: "2030-12-02T10:00",
+  endsAt: "2030-12-02T12:00",
+};
 
 beforeEach(() => {
   amendVenueBooking.mockReset().mockResolvedValue({});
@@ -175,5 +190,57 @@ describe("VenueBookingsPage (PTR-37)", () => {
 
     expect(screen.getByRole("button", { name: "Release Annual partner summit" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Amend Annual partner summit" })).toBeTruthy();
+  });
+
+  it("counts the queue and groups it by month", () => {
+    render(
+      <VenueBookingsPage
+        bookings={[booking, decemberBooking]}
+        venues={venues}
+        currentStaffId="venue-staff-001"
+      />
+    );
+
+    expect(screen.getByText("2 upcoming bookings")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Nov 2030" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Dec 2030" })).toBeTruthy();
+  });
+
+  it("names month groups with the shared date helper", () => {
+    expect(monthGroupLabel("2030-11")).toBe("Nov 2030");
+    expect(groupBookingsByMonth([decemberBooking, booking]).map(([month]) => month)).toEqual([
+      "2030-12",
+      "2030-11",
+    ]);
+  });
+
+  it("filters by venue and month, then clears", async () => {
+    render(
+      <VenueBookingsPage
+        bookings={[booking, decemberBooking]}
+        venues={venues}
+        currentStaffId="venue-staff-001"
+      />
+    );
+
+    await userEvent.click(screen.getByLabelText("Filter by venue"));
+    await userEvent.click(await screen.findByRole("option", { name: "Harbour Hall" }));
+    expect(screen.queryByText("Annual partner summit")).toBeNull();
+    expect(screen.getByText("Winter gala")).toBeTruthy();
+    expect(screen.getByText("Showing 1 of 2 upcoming bookings")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Filter by month"), { target: { value: "2030-11" } });
+    expect(screen.getByText("No bookings match these filters.")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.getByText("Annual partner summit")).toBeTruthy();
+    expect(screen.getByText("Winter gala")).toBeTruthy();
+  });
+
+  it("says when no upcoming booking exists", () => {
+    render(<VenueBookingsPage bookings={[]} venues={venues} currentStaffId="venue-staff-001" />);
+
+    expect(screen.getByText("0 upcoming bookings")).toBeTruthy();
+    expect(screen.getByText("No upcoming approved bookings.")).toBeTruthy();
   });
 });

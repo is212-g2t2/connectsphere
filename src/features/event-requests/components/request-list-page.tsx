@@ -1,8 +1,10 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { Eye, Pencil, Trash2 } from "lucide-react";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Button, buttonVariants } from "#/components/ui/button";
+import { IconAction, IconActionLink } from "#/components/ui/icon-action";
 import {
   Table,
   TableBody,
@@ -80,11 +82,12 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
   }
   return (
     <Page width="wide">
-      <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
-        Back to dashboard
-      </Link>
-
       <PageHeader
+        back={
+          <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
+            Back to dashboard
+          </Link>
+        }
         title="Event requests"
         description="Every request you have started, and where each one stands."
         actions={
@@ -153,8 +156,8 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                     </TableCell>
                   )}
                   <TableCell>
-                    {request.status === "draft" &&
-                      (pendingDeleteId === request.id ? (
+                    {request.status === "draft" ? (
+                      pendingDeleteId === request.id ? (
                         <span className="flex items-center gap-2 body-sm">
                           Delete this draft?
                           <Button
@@ -178,23 +181,33 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                         </span>
                       ) : (
                         <span className="flex items-center gap-2">
-                          <Link
-                            to="/event-requests/reopenDraft/$id"
-                            params={{ id: String(request.id) }}
-                            className={NAV_LINK_CLASSNAME}
-                          >
-                            Resume
-                          </Link>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
+                          <IconActionLink
+                            label="Resume"
+                            icon={<Pencil />}
+                            link={
+                              <Link
+                                to="/event-requests/reopenDraft/$id"
+                                params={{ id: String(request.id) }}
+                              />
+                            }
+                          />
+                          <IconAction
+                            label="Delete"
+                            icon={<Trash2 />}
+                            tone="danger"
                             onClick={() => setPendingDeleteId(request.id)}
-                          >
-                            Delete
-                          </Button>
+                          />
                         </span>
-                      ))}
+                      )
+                    ) : (
+                      <IconActionLink
+                        label="View"
+                        icon={<Eye />}
+                        link={
+                          <Link to="/events/$eventId" params={{ eventId: String(request.id) }} />
+                        }
+                      />
+                    )}
                     {isReusableEventRequest(request) && (
                       <Button
                         type="button"

@@ -30,16 +30,19 @@ export function Page({ width, sidebar, className, children, ...props }: PageProp
 }
 
 interface PageHeaderProps {
+  /** A back link the page supplies. It renders above the eyebrow with no router dependency. */
+  back?: ReactNode;
   eyebrow?: string;
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
 }
 
-export function PageHeader({ eyebrow, title, description, actions }: PageHeaderProps) {
+export function PageHeader({ back, eyebrow, title, description, actions }: PageHeaderProps) {
   return (
     <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
       <div>
+        {back ? <div className="mb-4">{back}</div> : null}
         {eyebrow ? <p className="eyebrow text-muted-foreground">{eyebrow}</p> : null}
         <h1 className="mt-3 display-h1">{title}</h1>
         {description ? <p className="mt-2 body-sm text-muted-foreground">{description}</p> : null}

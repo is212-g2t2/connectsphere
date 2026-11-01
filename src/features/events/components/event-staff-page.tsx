@@ -1,7 +1,8 @@
 import { CalendarDays } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
-import { Page } from "#/components/layout/page";
+import { Page, PageHeader } from "#/components/layout/page";
+import { buttonVariants } from "#/components/ui/button";
 import { ChangeRequestApplyProvider } from "#/features/coordination/components/change-request-decisions";
 import {
   coordinatorClosingSections,
@@ -77,7 +78,7 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
       ].filter(section => section.visible(data));
     }
     case "venue_staff":
-      return venueRequestSections(data).filter(section => section.visible(data));
+      return venueRequestSections(data, data.layouts).filter(section => section.visible(data));
     case "technical_support":
       return equipmentSections(data).filter(section => section.visible(data));
     case "safety_officer":
@@ -111,6 +112,39 @@ export function railSectionIds(data: EventPageData): Set<string> {
 }
 
 /**
+ * The compact action bar above the sections: anchor links to the visible state-changing
+ * sections for the current status. It renders from the same filtered section list as the stack,
+ * so it never names an action the status hides.
+ */
+const ACTION_SECTION_IDS: ReadonlySet<string> = new Set([
+  "review",
+  "confirm",
+  "complete",
+  "cancellation",
+  "assignment",
+  "decision",
+  "safety-re-review",
+]);
+
+function ActionBar({ sections }: { sections: EventSectionDef[] }) {
+  const actions = sections.filter(section => ACTION_SECTION_IDS.has(section.id));
+  if (actions.length === 0) return null;
+  return (
+    <nav aria-label="Event actions" className="flex flex-wrap gap-2">
+      {actions.map(section => (
+        <a
+          key={section.id}
+          href={`#${section.id}`}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          {section.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+/**
  * Render the anchored sections below the header block. Use a single column where the access has
  * no rail actions. Show the record stack beside a sticky action rail above the `split`
  * breakpoint.
@@ -122,6 +156,7 @@ function SectionStack({ data, sections }: { data: EventPageData; sections: Event
   if (railSections.length === 0) {
     return (
       <>
+        <ActionBar sections={sections} />
         {sections.map(section => (
           <section
             key={section.id}
@@ -137,6 +172,7 @@ function SectionStack({ data, sections }: { data: EventPageData; sections: Event
   }
   return (
     <>
+      <ActionBar sections={sections} />
       <div className="mt-8 grid items-start gap-8 split:grid-cols-[1.6fr_1fr]">
         <div className="min-w-0">
           {main.map(section => (
@@ -199,28 +235,26 @@ export function TriagePage({ data }: { data: Extract<EventPageData, { kind: "tri
 
   return (
     <Page width="wide">
-      <Link to="/coordination" className={NAV_LINK_CLASSNAME}>
-        Back to coordination
-      </Link>
-
-      <div className="mt-6">
-        <p className="eyebrow text-muted-foreground">unassigned request</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <EventRequestStatusBadge status={request.status} />
-        </div>
-        <h1 className="mt-3 font-semibold event-title">
-          {request.eventName.trim() || UNTITLED_REQUEST}
-        </h1>
-
-        {proposed ? (
-          <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 body-sm text-muted-foreground">
-            <span className="flex items-center gap-2">
-              <CalendarDays className="size-4" />
-              {formatProposedWindow(proposed)}
+      <PageHeader
+        back={
+          <Link to="/coordination" className={NAV_LINK_CLASSNAME}>
+            Back to coordination
+          </Link>
+        }
+        eyebrow="unassigned request"
+        title={request.eventName.trim() || UNTITLED_REQUEST}
+        description={
+          proposed ? (
+            <span className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <span className="flex items-center gap-2">
+                <CalendarDays className="size-4" aria-hidden="true" />
+                {formatProposedWindow(proposed)}
+              </span>
             </span>
-          </div>
-        ) : null}
-      </div>
+          ) : undefined
+        }
+        actions={<EventRequestStatusBadge status={request.status} />}
+      />
 
       <div className="mt-6">
         <SectionStack data={data} sections={sections} />

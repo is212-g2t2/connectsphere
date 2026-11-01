@@ -29,10 +29,6 @@ import { BlockedArrangements } from "#/features/events/components/blocked-arrang
 import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { WithdrawVenueHoldRequestButton } from "#/features/venue-requests/components/venue-hold-actions";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
-import {
-  EventRequirements,
-  hasEventRequirements,
-} from "#/features/events/components/event-requirements";
 import type {
   BlockedArrangement,
   EventHoldRequest,
@@ -287,7 +283,7 @@ function VenueBody({ data }: { data: EventPageData }) {
   if (!source) return null;
   const { status, venueRequests, holdRequests } = source;
   const hasActions = hasVenueActions(source);
-  const hasRequested = hasEventRequirements(source.requirements, venueRequests.length > 0);
+  const hasRequested = venueRequests.length > 0;
   const hasHoldRequests = holdRequests.length > 0;
   const hasBlocked = source.blocked.length > 0;
   if (!hasRequested && !hasHoldRequests && !source.confirmation && !hasActions && !hasBlocked) {
@@ -310,10 +306,10 @@ function VenueBody({ data }: { data: EventPageData }) {
           {hasRequested && (
             <>
               <p className="eyebrow text-muted-foreground">What was requested</p>
-              {/* The requirements and each venue request are separate description lists. The
-                  first list in the stack draws no top rule. */}
+              {/* Each venue request is its own description list. The first list in the stack
+                  draws no top rule. The request details or event information section carries
+                  the requirements, so this block lists the requests alone. */}
               <div className="mt-2 grid gap-3">
-                <EventRequirements event={source.requirements} />
                 {venueRequests.map(entry => (
                   <VenueRequestEntry
                     key={entry.id}
@@ -437,7 +433,7 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
           (coordinatorActions || venueRequests.length > 0);
         if (!settled && !searchable) return false;
         return (
-          hasEventRequirements(source.requirements, venueRequests.length > 0) ||
+          venueRequests.length > 0 ||
           source.holdRequests.length > 0 ||
           source.confirmation !== null ||
           hasVenueActions(source) ||

@@ -55,8 +55,8 @@ export function WithdrawAction({ eventId, eventName }: { eventId: number; eventN
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogTrigger
           render={
-            <Button variant="outline" size="sm" disabled={withdrawing}>
-              {withdrawing ? "Withdrawing…" : "Withdraw registration"}
+            <Button variant="ghost" size="sm" disabled={withdrawing}>
+              Withdraw registration
             </Button>
           }
         />

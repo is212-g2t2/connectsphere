@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 function saveDraftNamed(name: string) {
-  fireEvent.change(screen.getByLabelText("Event name (required)", { exact: true }), {
+  fireEvent.change(screen.getByLabelText("Event name", { exact: true }), {
     target: { value: name },
   });
   return userEvent.setup().click(screen.getByRole("button", { name: "Save draft" }));
@@ -160,12 +160,12 @@ describe("EventRequestsPage reopen (PTR-12)", () => {
   it("seeds the form with the loaded draft, converting stored values (AC2)", () => {
     render(<EventRequestsPage existingDraft={reopenedDraft} />);
 
-    expect(inputValue("Proposed start 1 (required)")).toBe("2030-11-18T09:30");
-    expect(inputValue("Proposed end 1 (required)")).toBe("2030-11-18T12:45");
-    expect(inputValue("Expected attendance (required)")).toBe("25");
-    expect(inputValue("Registration capacity (required)")).toBe("25");
-    expect(inputValue("Registration opens (required)")).toBe("2030-11-01T09:00");
-    expect(inputValue("Registration closes (required)")).toBe("2030-11-08T17:00");
+    expect(inputValue("Proposed start 1")).toBe("2030-11-18T09:30");
+    expect(inputValue("Proposed end 1")).toBe("2030-11-18T12:45");
+    expect(inputValue("Expected attendance")).toBe("25");
+    expect(inputValue("Registration capacity")).toBe("25");
+    expect(inputValue("Registration opens")).toBe("2030-11-01T09:00");
+    expect(inputValue("Registration closes")).toBe("2030-11-08T17:00");
     expect(
       screen
         .getByRole("checkbox", { name: "Require attendee registration" })
@@ -197,7 +197,7 @@ describe("EventRequestsPage submission (PTR-13)", () => {
     submitEventRequest.mockResolvedValue({ id: 41, status: "submitted" });
     render(<EventRequestsPage />);
 
-    fireEvent.change(screen.getByLabelText("Event name (required)", { exact: true }), {
+    fireEvent.change(screen.getByLabelText("Event name", { exact: true }), {
       target: { value: "Community workshop" },
     });
     await submitRequest();
@@ -239,5 +239,30 @@ describe("EventRequestsPage submission (PTR-13)", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Unauthorized");
     expect(submitEventRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("EventRequestsPage draft state (PTR-161)", () => {
+  it("shows a Draft badge while a draft is open, and none on a new request", () => {
+    const { unmount } = render(<EventRequestsPage existingDraft={reopenedDraft} />);
+
+    expect(screen.getByText("Draft")).toBeTruthy();
+
+    unmount();
+    render(<EventRequestsPage />);
+
+    expect(screen.queryByText("Draft")).toBeNull();
+  });
+
+  it("names unsaved changes once the form differs from its mount default", async () => {
+    render(<EventRequestsPage existingDraft={reopenedDraft} />);
+
+    expect(screen.queryByText(/Unsaved changes/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Event name", { exact: true }), {
+      target: { value: "Renamed workshop" },
+    });
+
+    expect(await screen.findByText("Unsaved changes. Save the draft before leaving.")).toBeTruthy();
   });
 });

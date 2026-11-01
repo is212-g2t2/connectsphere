@@ -39,8 +39,10 @@ async function createVenue(page: Page, name: string): Promise<string> {
   await page.getByLabel("Venue name", { exact: true }).fill(name);
   await page.getByLabel("Location", { exact: true }).fill(CREATED_LOCATION);
   await page.getByLabel("Maximum capacity", { exact: true }).fill("25");
-  await page.getByLabel("Facilities", { exact: true }).fill("Projector, Whiteboard");
-  await page.getByLabel("Accessibility features", { exact: true }).fill("Step-free access");
+  await page.getByLabel("Facilities (optional)", { exact: true }).fill("Projector, Whiteboard");
+  await page
+    .getByLabel("Accessibility features (optional)", { exact: true })
+    .fill("Step-free access");
   await page.getByRole("checkbox", { name: "Theatre" }).click();
   await page.getByRole("button", { name: "Create venue" }).click();
 
@@ -70,7 +72,7 @@ test.describe("Venue records", () => {
     await page.getByLabel("Venue name", { exact: true }).fill(name);
     await page.getByLabel("Location", { exact: true }).fill("Level 4");
     await page.getByLabel("Maximum capacity", { exact: true }).fill("25");
-    await page.getByLabel("Facilities", { exact: true }).fill("Projector, Whiteboard");
+    await page.getByLabel("Facilities (optional)", { exact: true }).fill("Projector, Whiteboard");
     await page.getByRole("checkbox", { name: "Classroom" }).click();
     await page.getByRole("button", { name: "Create venue" }).click();
 

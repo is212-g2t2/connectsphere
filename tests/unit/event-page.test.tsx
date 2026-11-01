@@ -59,7 +59,8 @@ describe("AttendeeEventPage (PTR-44)", () => {
     expect(screen.getByText("Seminar Room 2A")).toBeTruthy();
     expect(screen.getByText("Level 2, ConnectSphere Marina Centre")).toBeTruthy();
     expect(screen.getByText("Registration")).toBeTruthy();
-    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration opens 1 Nov 2026, 09:00")).toBeTruthy();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Back to dashboard" }).getAttribute("href")).toBe(
       "/dashboard"
@@ -190,7 +191,8 @@ describe("AttendeeEventPage (PTR-44)", () => {
     );
 
     expect(screen.getByText("You're registered")).toBeTruthy();
-    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration opens 1 Nov 2026, 09:00")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
     expect(screen.getByRole("button", { name: "Withdraw registration" })).toBeTruthy();
   });
@@ -259,7 +261,8 @@ describe("AttendeeEventPage (PTR-44)", () => {
     );
 
     expect(screen.queryByText("You're registered")).toBeNull();
-    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration opens 1 Nov 2026, 09:00")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Register" })).toBeTruthy();
   });
 
@@ -314,7 +317,8 @@ describe("AttendeeEventPage registration availability (PTR-50)", () => {
     renderWith({ registrationAvailability: { state: "not_yet_open" } });
 
     expect(screen.getByText("Registration is not yet open.")).toBeTruthy();
-    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Registration opens 1 Nov 2026, 09:00")).toBeTruthy();
     expect(screen.getAllByText(/1 Nov 2026, 09:00/)).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
@@ -388,5 +392,34 @@ describe("AttendeeEventPage registration availability (PTR-50)", () => {
 
     expect(screen.getByText("Registration is not open for this event.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+});
+
+describe("AttendeeEventPage mobile layout", () => {
+  it("renders the cover at 16:9 with the overlay caption hidden on mobile", () => {
+    const { container } = render(<AttendeeEventPage event={projection} />);
+
+    const cover = container.querySelector(".cover-art");
+    expect(cover?.className).toContain("aspect-video");
+    expect(cover?.className).not.toContain("aspect-square");
+
+    // The h1 repeats the name, so the overlay caption stays a desktop accent.
+    const caption = screen
+      .getAllByText("ConnectSphere Open Day")
+      .find(element => element.tagName === "P");
+    expect(caption?.className).toContain("hidden");
+    expect(caption?.className).toContain("split:block");
+  });
+
+  it("orders the date and venue before the registration card at every width", () => {
+    const { container } = render(<AttendeeEventPage event={projection} />);
+
+    const card = screen.getByText("Registration").closest('[data-slot="card"]');
+    expect(card?.className).toContain("order-3");
+    expect(card?.className).toContain("split:order-3");
+
+    // The date chip precedes the card in the column, so it cannot be cut off below it.
+    const date = container.querySelector(".order-2");
+    expect(date?.compareDocumentPosition(card as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });

@@ -3,16 +3,21 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateVenueSuitability,
   requirementFailures,
+  resolveSearchLayout,
+  shiftedDayTime,
   windowAvailabilityFailure,
 } from "#/features/venues/records.server";
 import type { SuitabilityCriterion } from "#/features/venues/records.server";
 import {
   AVAILABILITY_RANGE_MESSAGE,
   DEFAULT_OPERATING_HOURS,
+  INITIAL_ROOM_LAYOUTS,
   LAYOUT_MESSAGE,
   VENUE_SEARCH_TIME_MESSAGE,
+  assertKnownLayoutText,
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
+import type { OperatingHours } from "#/features/venues/schema";
 
 const venue = {
   id: 7,
@@ -207,8 +212,13 @@ describe("PTR-29 suitability rules", () => {
     );
   });
 
-  it("refuses a layout filter that names no supported layout", () => {
-    expect(() => parseVenueSearchRequest({ layout: "stadium" })).toThrow(LAYOUT_MESSAGE);
+  it("leaves layout text to the handler, which refuses a filter that names no layout", () => {
+    expect(parseVenueSearchRequest({ layout: "stadium" })).toMatchObject({ layout: "stadium" });
+    expect(() => assertKnownLayoutText("stadium")).toThrow(LAYOUT_MESSAGE);
+    expect(() => assertKnownLayoutText("stadium", INITIAL_ROOM_LAYOUTS)).toThrow(LAYOUT_MESSAGE);
+    expect(assertKnownLayoutText("theatre seating", INITIAL_ROOM_LAYOUTS)).toBeUndefined();
+    expect(assertKnownLayoutText(undefined, INITIAL_ROOM_LAYOUTS)).toBeUndefined();
+    expect(assertKnownLayoutText("", INITIAL_ROOM_LAYOUTS)).toBeUndefined();
   });
 
   it("refuses a window that crosses midnight, whatever the venue's hours", () => {
@@ -667,5 +677,158 @@ describe("PTR-135 buffered occupancy in search", () => {
         [bufferedHold]
       )
     ).toEqual([{ criterion: "hold", message: "Tentatively held on 2026-10-05" }]);
+  });
+});
+
+describe("PTR-161 AC7 unknown event layout prefill", () => {
+  it("ignores an event-defaulted layout that names no maintained layout", () => {
+    expect(resolveSearchLayout("Stadium concert", false, INITIAL_ROOM_LAYOUTS)).toBeUndefined();
+  });
+
+  it("keeps a layout that names a maintained layout, or no layout at all", () => {
+    expect(resolveSearchLayout("Theatre seating", false, INITIAL_ROOM_LAYOUTS)).toBe(
+      "Theatre seating"
+    );
+    expect(resolveSearchLayout(undefined, false, INITIAL_ROOM_LAYOUTS)).toBeUndefined();
+  });
+
+  it("refuses an explicitly supplied layout that names no maintained layout", () => {
+    expect(() => resolveSearchLayout("Stadium concert", true, INITIAL_ROOM_LAYOUTS)).toThrow(
+      LAYOUT_MESSAGE
+    );
+  });
+});
+
+describe("PTR-161 AC8 candidate buffers in search", () => {
+  // A venue with 60 minutes setup and turnaround. A 10:00–12:00 booking with no stored buffers
+  // occupies exactly 10:00–12:00. Approval expands the candidate window by the venue's buffers
+  // (`checkVenueFree`/`overlapsPeriod`, ADR-7), so it refuses 12:30–13:00 (buffered 11:30–14:00
+  // overlaps the booking) but takes 13:00–14:00 (buffered 12:00–15:00 only touches it).
+  const bufferedVenue = { ...venue, setupMinutes: 60, turnaroundMinutes: 60 };
+  // The edge windows sit outside default hours (00:30 and past 22:00), so run these cases
+  // all day: refusal then comes from the buffer alone, not from closing time.
+  const allDayHours: OperatingHours = {
+    mon: { opens: "00:00", closes: "23:59" },
+    tue: { opens: "00:00", closes: "23:59" },
+    wed: { opens: "00:00", closes: "23:59" },
+    thu: { opens: "00:00", closes: "23:59" },
+    fri: { opens: "00:00", closes: "23:59" },
+    sat: { opens: "00:00", closes: "23:59" },
+    sun: { opens: "00:00", closes: "23:59" },
+  };
+  const allDayBufferedVenue = { ...bufferedVenue, operatingHours: allDayHours };
+  const booking = {
+    id: "booking-1",
+    label: "Annual dinner",
+    startsAt: "2026-10-05T10:00:00",
+    endsAt: "2026-10-05T12:00:00",
+  };
+
+  it("shifts a day time across midnight", () => {
+    expect(shiftedDayTime("2026-10-05", "00:30", -60)).toBe("2026-10-04T23:30:00");
+    expect(shiftedDayTime("2026-10-05", "23:30", 60)).toBe("2026-10-06T00:30:00");
+    expect(shiftedDayTime("2026-10-05", "10:00", 0)).toBe("2026-10-05T10:00:00");
+  });
+
+  it("reports unsuitable with the booking reason for a window approval would refuse solely because of a buffer", () => {
+    expect(
+      failures(
+        bufferedVenue,
+        { date: "2026-10-05", startTime: "12:30", endTime: "13:00" },
+        [],
+        [booking]
+      )
+    ).toEqual([{ criterion: "booking", message: "Booked for Annual dinner on 2026-10-05" }]);
+  });
+
+  it("leaves a window that only touches the buffered booking free", () => {
+    expect(
+      suits(
+        bufferedVenue,
+        { date: "2026-10-05", startTime: "13:00", endTime: "14:00" },
+        [],
+        [booking]
+      )
+    ).toBe(true);
+  });
+
+  it("reports unsuitable with the hold reason for a buffer-only hold overlap", () => {
+    const hold = {
+      id: "hold-1",
+      label: "tentative hold",
+      startsAt: "2026-10-05T10:00:00",
+      endsAt: "2026-10-05T12:00:00",
+    };
+    expect(
+      failures(
+        bufferedVenue,
+        { date: "2026-10-05", startTime: "12:30", endTime: "13:00" },
+        [],
+        [],
+        [hold]
+      )
+    ).toEqual([{ criterion: "hold", message: "Tentatively held on 2026-10-05" }]);
+  });
+
+  it("reports unsuitable with the block reason for a buffer-only block overlap", () => {
+    const block = {
+      id: "block-1",
+      label: "Floor resurfacing",
+      startsAt: "2026-10-05T10:00:00",
+      endsAt: "2026-10-05T12:00:00",
+    };
+    expect(
+      failures(
+        bufferedVenue,
+        { date: "2026-10-05", startTime: "12:30", endTime: "13:00" },
+        [block],
+        []
+      )
+    ).toEqual([
+      { criterion: "availability", message: "Unavailable on 2026-10-05: Floor resurfacing" },
+    ]);
+  });
+
+  it("compares the raw window when the venue holds no buffers", () => {
+    expect(
+      suits(venue, { date: "2026-10-05", startTime: "12:30", endTime: "13:00" }, [], [booking])
+    ).toBe(true);
+  });
+
+  it("refuses a window whose setup buffer reaches a booking before the requested date, naming the booking's day", () => {
+    const beforeRange = {
+      id: "booking-1",
+      label: "Annual dinner",
+      startsAt: "2026-10-04T22:00:00",
+      endsAt: "2026-10-04T23:45:00",
+    };
+    // The buffered window starts at 23:30 on the 4th and overlaps the booking. Approval expands
+    // the candidate the same way, so it refuses this window too.
+    expect(
+      failures(
+        allDayBufferedVenue,
+        { date: "2026-10-05", startTime: "00:30", endTime: "01:30" },
+        [],
+        [beforeRange]
+      )
+    ).toEqual([{ criterion: "booking", message: "Booked for Annual dinner on 2026-10-04" }]);
+  });
+
+  it("refuses a window whose turnaround buffer reaches a booking after the requested date, naming the booking's day", () => {
+    const afterRange = {
+      id: "booking-1",
+      label: "Annual dinner",
+      startsAt: "2026-10-06T00:00:00",
+      endsAt: "2026-10-06T01:00:00",
+    };
+    // The buffered window ends at 00:30 on the 6th and overlaps the booking.
+    expect(
+      failures(
+        allDayBufferedVenue,
+        { date: "2026-10-05", startTime: "22:00", endTime: "23:30" },
+        [],
+        [afterRange]
+      )
+    ).toEqual([{ criterion: "booking", message: "Booked for Annual dinner on 2026-10-06" }]);
   });
 });

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 
+import { E2E_BASE_URL } from "./base-url";
 import { waitForHydration } from "./hydration";
 import { waitForEmail } from "./mailpit";
 
@@ -44,13 +45,13 @@ test.describe("Reset password journey", () => {
     const email = `e2e-reset-${Date.now()}@example.com`;
 
     const signUp = await page.request.post("/api/auth/sign-up/email", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
       data: { name: "Reset Journey", email, password },
     });
     expect(signUp.ok(), await signUp.text()).toBe(true);
 
     const resetRequest = await page.request.post("/api/auth/request-password-reset", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
       data: { email, redirectTo: "/reset-password" },
     });
     expect(resetRequest.ok(), await resetRequest.text()).toBe(true);
@@ -75,7 +76,7 @@ test.describe("Reset password journey", () => {
     // Sign-up leaves the user signed in, and `/login` redirects signed-in users to the dashboard.
     // Sign out first so the test checks the new password.
     const signOut = await page.request.post("/api/auth/sign-out", {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: E2E_BASE_URL },
     });
     expect(signOut.ok(), await signOut.text()).toBe(true);
 

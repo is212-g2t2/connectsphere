@@ -391,7 +391,7 @@ function LineForm({ eventId, defaults, lineId, onDone, onCancel }: LineFormProps
   return (
     <form
       noValidate
-      className="space-y-3 rounded-lg border border-border p-4"
+      className="space-y-3 rounded-lg border border-border bg-card p-4"
       onSubmit={e => {
         e.preventDefault();
         if (form.state.isSubmitting) return;

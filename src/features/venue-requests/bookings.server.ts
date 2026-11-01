@@ -22,6 +22,7 @@ import {
   checkVenueTakesBooking,
   loadLockedVenue,
 } from "#/features/venue-requests/requests.server";
+import { handleListRoomLayouts } from "#/features/venues/layouts.server";
 import {
   assertSameVenue,
   keyShareEventForRequest,
@@ -298,7 +299,8 @@ export async function handleAmendVenueBooking(
     // A refusal rolls the deletion back.
     await vacateVenue(tx, { venueRequestId: input.id });
     const venue = await loadLockedVenue(tx, input.venueId);
-    if (venue.id !== row.venueId) assertMeetsRequirements(venue, row.requirements);
+    if (venue.id !== row.venueId)
+      assertMeetsRequirements(venue, row.requirements, await handleListRoomLayouts(tx));
     const booking = { eventId: row.eventId, startsAt, endsAt };
     const occupancy = await checkVenueTakesBooking(tx, venue, booking);
     // The ledger check refused every booking or hold overlap. Only the event's pending requests at

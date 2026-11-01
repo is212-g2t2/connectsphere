@@ -8,6 +8,7 @@ import type {
   VenueRequestContext,
   VenueRequestContextRow,
 } from "#/features/venue-requests/server-fns";
+import { INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
 
 const { requestVenue, withdrawVenueRequest, invalidate, success } = vi.hoisted(() => ({
   requestVenue: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
@@ -127,7 +128,14 @@ function withRows(...requests: VenueRequestContextRow[]): VenueRequestContext {
 }
 
 function renderPanel(context: VenueRequestContext) {
-  return render(<VenueRequestPanel venueId={3} venueName="Harbour Hall" context={context} />);
+  return render(
+    <VenueRequestPanel
+      venueId={3}
+      venueName="Harbour Hall"
+      context={context}
+      layouts={INITIAL_ROOM_LAYOUTS}
+    />
+  );
 }
 
 function requestList() {
@@ -144,9 +152,9 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       renderPanel(openContext);
 
       expect(screen.getByRole("heading", { name: "Request this venue" })).toBeTruthy();
-      expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-12");
-      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "14:30");
-      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "18:45");
+      expect(screen.getByLabelText("Date")).toHaveProperty("value", "2026-10-12");
+      expect(screen.getByLabelText("Start time")).toHaveProperty("value", "14:30");
+      expect(screen.getByLabelText("End time")).toHaveProperty("value", "18:45");
     });
 
     it("prefers the adjusted window carried in from a rejection over the event's own (PTR-35 AC1)", () => {
@@ -154,14 +162,15 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={9}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={openContext}
           prefill={{ date: "2027-04-21", startTime: "10:00", endTime: "13:30" }}
         />
       );
 
-      expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2027-04-21");
-      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "10:00");
-      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "13:30");
+      expect(screen.getByLabelText("Date")).toHaveProperty("value", "2027-04-21");
+      expect(screen.getByLabelText("Start time")).toHaveProperty("value", "10:00");
+      expect(screen.getByLabelText("End time")).toHaveProperty("value", "13:30");
       expect(screen.getByText(/carried over from the search or the rejected request/)).toBeTruthy();
       // The reader lands on the prefilled form, not on the list above it.
       expect(document.activeElement).toBe(
@@ -177,14 +186,15 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={9}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={openContext}
           prefill={{ date: "2027-04-21", startTime, endTime }}
         />
       );
 
-      expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-12");
-      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "14:30");
-      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "18:45");
+      expect(screen.getByLabelText("Date")).toHaveProperty("value", "2026-10-12");
+      expect(screen.getByLabelText("Start time")).toHaveProperty("value", "14:30");
+      expect(screen.getByLabelText("End time")).toHaveProperty("value", "18:45");
       expect(screen.queryByText(/carried over from the search or the rejected request/)).toBeNull();
     });
 
@@ -210,6 +220,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={3}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={openContext}
           prefill={{ expectedAttendance: 30, layout: "Boardroom", requiredFacilities: "" }}
         />
@@ -220,7 +231,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(screen.getByLabelText("Accessibility")).toHaveProperty("value", "Step-free access");
       expect(screen.getByLabelText("Facilities")).toHaveProperty("value", "");
       // No window came with them, so the event's window stays and the form keeps its place.
-      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "14:30");
+      expect(screen.getByLabelText("Start time")).toHaveProperty("value", "14:30");
       expect(screen.queryByText(/carried over/)).toBeNull();
       expect(document.activeElement).toBe(document.body);
     });
@@ -230,14 +241,15 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={3}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={openContext}
           prefill={{ date: "2026-10-14" }}
         />
       );
 
-      expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-14");
-      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "");
-      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "");
+      expect(screen.getByLabelText("Date")).toHaveProperty("value", "2026-10-14");
+      expect(screen.getByLabelText("Start time")).toHaveProperty("value", "");
+      expect(screen.getByLabelText("End time")).toHaveProperty("value", "");
     });
 
     it("sends the session values the Coordinator changed (PTR-138 AC1)", async () => {
@@ -307,6 +319,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={9}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={{ ...openContext, replaceable: [candidate] }}
           prefill={{
             date: "2027-04-21",
@@ -376,6 +389,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={9}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={openContext}
           prefill={{
             date: "2027-04-21",
@@ -411,6 +425,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={9}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={{ ...openContext, replaceable: [REJECTED_CANDIDATE] }}
           prefill={prefill}
         />
@@ -422,6 +437,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={9}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={openContext}
           prefill={prefill}
         />
@@ -434,6 +450,43 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       });
       const sent = requestVenue.mock.calls[0][0].data as { replacesRequestId?: string };
       expect(sent.replacesRequestId).toBeUndefined();
+    });
+
+    it("refuses a layout the maintained list does not name, without calling the server", async () => {
+      const user = userEvent.setup();
+      render(
+        <VenueRequestPanel
+          venueId={3}
+          venueName="Harbour Hall"
+          context={openContext}
+          layouts={[{ key: "main-hall", label: "Main Hall" }]}
+        />
+      );
+
+      // The event asks for "Theatre seating", which this list does not maintain.
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      expect(screen.getByLabelText("Layout").getAttribute("aria-invalid")).toBe("true");
+      expect(requestVenue).not.toHaveBeenCalled();
+    });
+
+    it("names a session by the maintained list's labels, in rows and in the layout hint", () => {
+      const attended = {
+        ...ownPending,
+        requirements: { ...ownPending.requirements, layout: "Grand Theatre" },
+      };
+      render(
+        <VenueRequestPanel
+          venueId={3}
+          venueName="Harbour Hall"
+          context={withRows(attended)}
+          layouts={[{ key: "grand", label: "Grand Theatre" }]}
+        />
+      );
+
+      // The initials would read this layout as "Theatre". The maintained list names it fully.
+      expect(within(requestList()).getByText("80 attendees, Grand Theatre")).toBeTruthy();
+      expect(screen.getByLabelText("Layout").getAttribute("placeholder")).toBe("Grand Theatre…");
     });
 
     it("refuses a layout that names no supported layout before calling the server", async () => {
@@ -467,9 +520,9 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
 
       // A request covers one calendar day. Do not silently use only the first day of a multi-day
       // event.
-      expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-12");
-      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "");
-      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "");
+      expect(screen.getByLabelText("Date")).toHaveProperty("value", "2026-10-12");
+      expect(screen.getByLabelText("Start time")).toHaveProperty("value", "");
+      expect(screen.getByLabelText("End time")).toHaveProperty("value", "");
       expect(
         screen.getByText(
           "This event spans more than one day, so choose the date and times this request covers."
@@ -482,8 +535,8 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       requestVenue.mockResolvedValueOnce({ id: "req-1" });
       renderPanel(openContext);
 
-      await user.clear(screen.getByLabelText("End time (required)"));
-      await user.type(screen.getByLabelText("End time (required)"), "20:00");
+      await user.clear(screen.getByLabelText("End time"));
+      await user.type(screen.getByLabelText("End time"), "20:00");
       await user.click(screen.getByRole("button", { name: "Send booking request" }));
 
       await waitFor(() => {
@@ -511,7 +564,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       const user = userEvent.setup();
       renderPanel(openContext);
 
-      await user.clear(screen.getByLabelText("End time (required)"));
+      await user.clear(screen.getByLabelText("End time"));
       await user.click(screen.getByRole("button", { name: "Send booking request" }));
 
       expect(screen.getByText("Enter start and end times as HH:MM")).toBeTruthy();
@@ -522,10 +575,10 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       const user = userEvent.setup();
       renderPanel(openContext);
 
-      await user.clear(screen.getByLabelText("End time (required)"));
+      await user.clear(screen.getByLabelText("End time"));
       await user.click(screen.getByRole("button", { name: "Send booking request" }));
 
-      const endInput = screen.getByLabelText("End time (required)");
+      const endInput = screen.getByLabelText("End time");
       expect(endInput.getAttribute("aria-invalid")).toBe("true");
       // `data-invalid` styles the label. Checking only `aria-invalid` would miss a styling regression.
       expect(endInput.closest("[data-slot='field']")?.getAttribute("data-invalid")).toBe("true");
@@ -770,6 +823,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={3}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={withRows(approved, ownPending)}
         />
       );
@@ -791,7 +845,14 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       });
 
       // The loader reruns without the withdrawn row.
-      rerender(<VenueRequestPanel venueId={3} venueName="Harbour Hall" context={openContext} />);
+      rerender(
+        <VenueRequestPanel
+          venueId={3}
+          venueName="Harbour Hall"
+          context={openContext}
+          layouts={INITIAL_ROOM_LAYOUTS}
+        />
+      );
 
       await waitFor(() => {
         expect(document.activeElement).toBe(
@@ -804,7 +865,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       const user = userEvent.setup();
       const { rerender } = renderPanel(withRows(ownPending));
 
-      const endInput = screen.getByLabelText("End time (required)");
+      const endInput = screen.getByLabelText("End time");
       await user.clear(endInput);
       await user.type(endInput, "21:00");
 
@@ -813,12 +874,13 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         <VenueRequestPanel
           venueId={3}
           venueName="Harbour Hall"
+          layouts={INITIAL_ROOM_LAYOUTS}
           context={{ ...withRows({ ...ownPending }), event: { ...openContext.event } }}
         />
       );
 
-      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "21:00");
-      expect(document.activeElement).toBe(screen.getByLabelText("End time (required)"));
+      expect(screen.getByLabelText("End time")).toHaveProperty("value", "21:00");
+      expect(document.activeElement).toBe(screen.getByLabelText("End time"));
     });
   });
 });

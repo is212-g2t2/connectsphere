@@ -18,6 +18,7 @@ import { VenueRequestStatusBadge } from "#/features/venue-requests/components/ve
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
@@ -27,7 +28,10 @@ import { skipRootFilter } from "#/lib/invalidate";
  * group per loaded pending request. A decision group disappears once its request leaves
  * `pending`. The rail splits on the `request` and `decision` ids, so keep them.
  */
-export function venueRequestSections(data: EventPageData): EventSectionDef[] {
+export function venueRequestSections(
+  data: EventPageData,
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[]
+): EventSectionDef[] {
   if (data.kind !== "event" || data.event.access !== "venue_staff") return [];
   return [
     {
@@ -35,7 +39,7 @@ export function venueRequestSections(data: EventPageData): EventSectionDef[] {
       label: "Booking request details",
       visible: inner =>
         inner.kind === "event" && (inner.event.event.venueRequests ?? []).length > 0,
-      render: inner => <RequestBody data={inner} />,
+      render: inner => <RequestBody data={inner} layouts={layouts} />,
     },
     {
       id: "decision",
@@ -86,7 +90,13 @@ function loadedRequests(data: EventPageData): PendingVenueRequestDetail[] {
 }
 
 /** Show one block per projection entry: the loaded pending request, or the entry's outcome. */
-function RequestBody({ data }: { data: EventPageData }) {
+function RequestBody({
+  data,
+  layouts,
+}: {
+  data: EventPageData;
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[];
+}) {
   if (data.kind !== "event") return null;
   const requestsById = loadedById(data);
   const pendingNote = data.venueDecisions ? pendingDecidedNote(1) : PENDING_NOT_LOADED_NOTE;
@@ -100,7 +110,7 @@ function RequestBody({ data }: { data: EventPageData }) {
             className="mt-8 border-t border-border pt-8 first:mt-0 first:border-t-0 first:pt-0"
           >
             {loaded ? (
-              <BookingRequestDetails request={loaded} />
+              <BookingRequestDetails request={loaded} layouts={layouts} />
             ) : (
               <VenueRequestOutcome
                 entry={entry}

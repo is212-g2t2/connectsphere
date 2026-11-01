@@ -481,7 +481,7 @@ describe("Lead assignment section (PTR-145)", () => {
     expect(screen.getByText("Not yet assigned")).toBeTruthy();
     await userEvent.click(screen.getByLabelText("Event Coordinator"));
     await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
-    await userEvent.click(screen.getByRole("button", { name: "Assign Coordinator" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assign coordinator" }));
 
     await waitFor(() =>
       expect(assignEventRequest).toHaveBeenCalledWith({
@@ -495,11 +495,11 @@ describe("Lead assignment section (PTR-145)", () => {
   it("reassigns with the expected current Coordinator and reassigns the label", async () => {
     renderLeadSection(leadEventData("planning", owned({ status: "planning" })), "assignment");
 
-    expect(screen.getByRole("button", { name: "Reassign Coordinator" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reassign coordinator" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "me@example.com" })).toBeTruthy();
     await userEvent.click(screen.getByLabelText("Event Coordinator"));
     await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
-    await userEvent.click(screen.getByRole("button", { name: "Reassign Coordinator" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reassign coordinator" }));
 
     await waitFor(() =>
       expect(assignEventRequest).toHaveBeenCalledWith({
@@ -526,7 +526,7 @@ describe("Lead assignment section (PTR-145)", () => {
 
     await userEvent.click(screen.getByLabelText("Event Coordinator"));
     await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
-    await userEvent.click(screen.getByRole("button", { name: "Assign Coordinator" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assign coordinator" }));
 
     expect(await screen.findByRole("alert")).toHaveProperty(
       "textContent",
@@ -535,6 +535,27 @@ describe("Lead assignment section (PTR-145)", () => {
     expect(success).not.toHaveBeenCalled();
     // The refusal usually means the page is stale; re-read so the retry carries the new holder.
     expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("disables the submit until a coordinator is chosen", async () => {
+    renderLeadSection(triageData(coordinationRequest()), "assignment");
+
+    const submit = screen.getByRole("button", { name: "Assign coordinator" });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
+    expect(submit.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("states the effect on the current holder", () => {
+    renderLeadSection(leadEventData("planning", owned({ status: "planning" })), "assignment");
+    expect(
+      screen.getByText("Choosing a coordinator moves this request away from Myself at once.")
+    ).toBeTruthy();
+
+    renderLeadSection(triageData(coordinationRequest()), "assignment");
+    expect(screen.getByText("Choosing a coordinator assigns this request at once.")).toBeTruthy();
   });
 
   it("marks an assigned-but-orphaned coordinator as unavailable", () => {

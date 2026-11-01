@@ -9,7 +9,7 @@ import {
   parseAvailabilitySearch,
   parseAvailabilitySelection,
 } from "#/features/venues/schema";
-import { getVenueAvailability, listVenues } from "#/features/venues/server-fns";
+import { getVenueAvailability, listRoomLayouts, listVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/availability")({
@@ -26,8 +26,9 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
   loaderDeps: ({ search }) => search,
   loader: async ({ deps, context }) => {
     const selection = parseAvailabilitySelection(deps);
-    const [venues, coordinatorEvents, schedule] = await Promise.all([
+    const [venues, layouts, coordinatorEvents, schedule] = await Promise.all([
       listVenues(),
+      listRoomLayouts(),
       can(context.user.role, { venue_request: ["request"] })
         ? listEvents({ data: {} })
             .then(list =>
@@ -44,14 +45,14 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
         ? getVenueAvailability({ data: selection }).then(({ availability }) => availability)
         : null,
     ]);
-    if (!selection) return { venues, schedule: null, coordinatorEvents };
+    if (!selection) return { venues, layouts, schedule: null, coordinatorEvents };
     // If no row has this venue id, the read returns `null`, as `$venueId.tsx` does.
     // This uses the router's not-found boundary, not the error boundary for a 404 response.
     if (!schedule) throw notFound();
-    return { venues, schedule, coordinatorEvents };
+    return { venues, layouts, schedule, coordinatorEvents };
   },
   component: () => {
-    const { venues, schedule, coordinatorEvents } = Route.useLoaderData();
+    const { venues, layouts, schedule, coordinatorEvents } = Route.useLoaderData();
     const search = Route.useSearch();
     const { user } = Route.useRouteContext();
     return (
@@ -61,6 +62,7 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
         venues={venues}
         schedule={schedule}
         search={search}
+        layouts={layouts}
         user={user}
         coordinatorEvents={coordinatorEvents}
       />

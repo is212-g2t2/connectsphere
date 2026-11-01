@@ -4,8 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionUser } from "#/features/auth/session";
-import { VenueListPage, requestSearch } from "#/features/venues/components/venue-list-page";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import {
+  VenueListPage,
+  appliedFilters,
+  requestSearch,
+  summariseUnsuitable,
+} from "#/features/venues/components/venue-list-page";
+import { DEFAULT_OPERATING_HOURS, INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
 import type { VenueSearchResult } from "#/features/venues/server-fns";
 
 const { navigate } = vi.hoisted(() => ({ navigate: vi.fn<(options: unknown) => void>() }));
@@ -54,21 +59,22 @@ function result(overrides: Partial<VenueSearchResult> = {}): VenueSearchResult {
     filters: {},
     venues: [matchingVenue],
     unsuitable: [],
+    layouts: [...INITIAL_ROOM_LAYOUTS],
     ...overrides,
   };
 }
 
 const FILTERS = [
-  "Date",
-  "End date",
-  "Start time",
-  "End time",
-  "Expected attendance",
-  "Location",
-  "Minimum capacity",
-  "Accessibility features",
-  "Supported layout",
-  "Required facilities",
+  "Date (optional)",
+  "End date (optional)",
+  "Start time (optional)",
+  "End time (optional)",
+  "Expected attendance (optional)",
+  "Location (optional)",
+  "Minimum capacity (optional)",
+  "Accessibility features (optional)",
+  "Supported layout (optional)",
+  "Required facilities (optional)",
 ];
 
 /** Type into the controlled input, then read its value. */
@@ -95,10 +101,31 @@ describe("VenueListPage search", () => {
     }
 
     const results = screen.getByRole("region", { name: "Venue results" });
-    expect(within(results).getByRole("link", { name: "Great Hall" })).toBeTruthy();
-    expect(within(results).getByText("East Wing")).toBeTruthy();
+    expect(within(results).getAllByRole("link", { name: "Great Hall" })).toHaveLength(2);
+    expect(within(results).getAllByText("East Wing")).toHaveLength(2);
+    // The card names its values; the table shows bare values.
+    expect(within(results).getByText("Capacity 200")).toBeTruthy();
     expect(within(results).getByText("200")).toBeTruthy();
-    expect(within(results).getByText("Projector, PA system")).toBeTruthy();
+    expect(within(results).getByText("Facilities:")).toBeTruthy();
+    expect(within(results).getAllByText("Projector, PA system")).toHaveLength(2);
+    expect(within(results).getByText("Layouts:")).toBeTruthy();
+    expect(within(results).getAllByText("Theatre")).toHaveLength(2);
+    // The catalogue table lets long values wrap instead of overprinting the next column.
+    for (const cell of [
+      screen.getByTitle("Projector, PA system", { exact: true }),
+      screen.getByTitle("Theatre", { exact: true }),
+    ]) {
+      expect(cell.className).toContain("whitespace-normal");
+    }
+  });
+
+  it("groups the fields under When, Who and where, and Room requirements", () => {
+    render(<VenueListPage user={user} result={result()} />);
+
+    expect(screen.getByText("When")).toBeTruthy();
+    expect(screen.getByText("Who and where")).toBeTruthy();
+    expect(screen.getByText("Room requirements")).toBeTruthy();
+    expect(screen.getByText("The time window repeats each day in the date range.")).toBeTruthy();
   });
 
   it("opens prefilled from an event's requirements", () => {
@@ -123,16 +150,16 @@ describe("VenueListPage search", () => {
     );
 
     expect(screen.getByText("Prefilled from Annual summit")).toBeTruthy();
-    expect(fieldValue("Date")).toBe("2026-10-05");
-    expect(fieldValue("End date")).toBe("2026-10-06");
-    expect(fieldValue("Expected attendance")).toBe("120");
-    expect(fieldValue("Supported layout")).toBe("Theatre seating");
-    expect(fieldValue("Required facilities")).toBe("Projector, PA system");
+    expect(fieldValue("Date (optional)")).toBe("2026-10-05");
+    expect(fieldValue("End date (optional)")).toBe("2026-10-06");
+    expect(fieldValue("Expected attendance (optional)")).toBe("120");
+    expect(fieldValue("Supported layout (optional)")).toBe("Theatre seating");
+    expect(fieldValue("Required facilities (optional)")).toBe("Projector, PA system");
   });
 
   it("follows a new filters prop into the form values", () => {
     const { rerender } = render(<VenueListPage user={user} result={result()} />);
-    expect(fieldValue("Location")).toBe("");
+    expect(fieldValue("Location (optional)")).toBe("");
 
     rerender(
       <VenueListPage
@@ -141,8 +168,8 @@ describe("VenueListPage search", () => {
       />
     );
 
-    expect(fieldValue("Location")).toBe("East Wing");
-    expect(fieldValue("Minimum capacity")).toBe("150");
+    expect(fieldValue("Location (optional)")).toBe("East Wing");
+    expect(fieldValue("Minimum capacity (optional)")).toBe("150");
   });
 
   it("shows an explicit empty result without an error", () => {
@@ -186,10 +213,10 @@ describe("VenueListPage search", () => {
       />
     );
 
-    await fill(actor, "Date", "2026-10-05");
-    await fill(actor, "Start time", "10:00");
-    await fill(actor, "End time", "12:00");
-    await fill(actor, "Expected attendance", "120");
+    await fill(actor, "Date (optional)", "2026-10-05");
+    await fill(actor, "Start time (optional)", "10:00");
+    await fill(actor, "End time (optional)", "12:00");
+    await fill(actor, "Expected attendance (optional)", "120");
     await actor.click(screen.getByRole("button", { name: "Search venues" }));
 
     await waitFor(() => {
@@ -204,23 +231,120 @@ describe("VenueListPage search", () => {
         },
       });
     });
+    // A successful search moves focus to the results heading, which scrolls the changed
+    // results into view and announces them.
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Venue results" }));
   });
 
-  it("clears unsaved fields and a local validation error on an unfiltered page", async () => {
+  it("disables Clear filters when no filter is applied, and enables it once one is", async () => {
     const actor = userEvent.setup();
-    render(<VenueListPage user={user} result={result()} />);
+    const { rerender } = render(<VenueListPage user={user} result={result()} />);
+    expect(screen.getByRole("button", { name: "Clear filters" })).toHaveProperty("disabled", true);
 
-    await fill(actor, "Start time", "10:00");
+    rerender(<VenueListPage user={user} result={result({ filters: { location: "East" } })} />);
+    const clear = screen.getByRole("button", { name: "Clear filters" });
+    expect(clear).toHaveProperty("disabled", false);
+
+    await fill(actor, "Start time (optional)", "10:00");
     await actor.click(screen.getByRole("button", { name: "Search venues" }));
 
     expect(screen.getByRole("alert").textContent).toBe("Choose both a start and end time");
     expect(navigate).not.toHaveBeenCalled();
 
-    await actor.click(screen.getByRole("button", { name: "Clear filters" }));
+    await actor.click(clear);
 
-    expect(fieldValue("Start time")).toBe("");
+    expect(fieldValue("Start time (optional)")).toBe("");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(navigate).toHaveBeenCalledWith({ to: "/venues", search: {} });
+  });
+
+  it("summarises the applied filters above the results with a clear-all action", async () => {
+    const actor = userEvent.setup();
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          filters: { date: "2026-10-05", endDate: "2026-10-06", capacity: 150 },
+        })}
+      />
+    );
+
+    const applied = screen.getByRole("region", { name: "Applied filters" });
+    expect(within(applied).getByText("Dates: 2026-10-05 to 2026-10-06")).toBeTruthy();
+    expect(within(applied).getByText("Minimum capacity: 150")).toBeTruthy();
+
+    await actor.click(within(applied).getByRole("button", { name: "Clear all" }));
+    expect(navigate).toHaveBeenCalledWith({ to: "/venues", search: {} });
+  });
+
+  it("shows no applied-filter summary on an unfiltered page", () => {
+    render(<VenueListPage user={user} result={result()} />);
+    expect(screen.queryByRole("region", { name: "Applied filters" })).toBeNull();
+  });
+});
+
+describe("appliedFilters", () => {
+  it("lists each set filter and skips the event context", () => {
+    expect(
+      appliedFilters({
+        eventId: 41,
+        date: "2026-10-05",
+        startTime: "10:00",
+        endTime: "12:00",
+        expectedAttendance: 120,
+        capacity: 150,
+        location: "East Wing",
+        accessibility: "Step-free access",
+        layout: "Theatre seating",
+        facilities: "Projector, PA system",
+      })
+    ).toEqual([
+      { key: "dates", label: "Dates", value: "2026-10-05" },
+      { key: "time", label: "Time", value: "10:00–12:00" },
+      { key: "expectedAttendance", label: "Expected attendance", value: "120" },
+      { key: "capacity", label: "Minimum capacity", value: "150" },
+      { key: "location", label: "Location", value: "East Wing" },
+      { key: "accessibility", label: "Accessibility", value: "Step-free access" },
+      { key: "layout", label: "Layout", value: "Theatre seating" },
+      { key: "facilities", label: "Facilities", value: "Projector, PA system" },
+    ]);
+  });
+
+  it("combines a date range and returns nothing when unfiltered", () => {
+    expect(appliedFilters({ date: "2026-10-05", endDate: "2026-10-07" })).toEqual([
+      { key: "dates", label: "Dates", value: "2026-10-05 to 2026-10-07" },
+    ]);
+    expect(appliedFilters({})).toEqual([]);
+    expect(appliedFilters({ eventId: 41 })).toEqual([]);
+  });
+});
+
+describe("summariseUnsuitable", () => {
+  it("counts the venues that fell short and each failed criterion", () => {
+    expect(
+      summariseUnsuitable([
+        {
+          failures: [{ criterion: "capacity" }, { criterion: "facilities" }],
+        },
+        { failures: [{ criterion: "capacity" }] },
+      ])
+    ).toBe("2 venues fell short: 2 too small, 1 missing facilities");
+  });
+
+  it("names the searched layout and uses the singular", () => {
+    expect(summariseUnsuitable([{ failures: [{ criterion: "layout" }] }], "Theatre seating")).toBe(
+      "1 venue fell short: 1 do not offer Theatre seating"
+    );
+  });
+
+  it("counts each venue once per criterion", () => {
+    expect(
+      summariseUnsuitable([
+        {
+          failures: [{ criterion: "booking" }, { criterion: "booking" }],
+        },
+      ])
+    ).toBe("1 venue fell short: 1 already booked");
   });
 });
 
@@ -259,9 +383,12 @@ describe("VenueListPage suitability (PTR-30)", () => {
     // Show suitable venues as results. List shortfalls in a separate region below them.
     expect(within(results).queryByRole("link", { name: "Small Room" })).toBeNull();
     const unsuitable = screen.getByRole("region", { name: "Not suitable" });
+    expect(
+      within(unsuitable).getByText("1 venue fell short: 1 too small, 1 missing facilities")
+    ).toBeTruthy();
     expect(within(unsuitable).getByRole("link", { name: "Small Room" })).toBeTruthy();
-    expect(within(unsuitable).getByText("Holds 40; 120 needed")).toBeTruthy();
-    expect(within(unsuitable).getByText("Missing facilities: projector")).toBeTruthy();
+    expect(within(unsuitable).getByText(/Holds 40; 120 needed/)).toBeTruthy();
+    expect(within(unsuitable).getByText(/Missing facilities: projector/)).toBeTruthy();
     // AC6 specifies where to show the verdict.
     expect(within(unsuitable).getByText(/books or blocks nothing/)).toBeTruthy();
   });
@@ -274,7 +401,7 @@ describe("VenueListPage suitability (PTR-30)", () => {
       />
     );
 
-    expect(screen.queryByRole("heading", { name: "Not suitable" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Not suitable" })).toBeNull();
     expect(screen.getByText("1 venue")).toBeTruthy();
   });
 
@@ -298,7 +425,7 @@ describe("VenueListPage suitability (PTR-30)", () => {
     );
 
     expect(screen.getByText("A search window cannot cross midnight.")).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Not suitable" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Not suitable" })).toBeNull();
   });
 
   it("shows the reasons beneath an explicit empty result", () => {
@@ -319,7 +446,7 @@ describe("VenueListPage suitability (PTR-30)", () => {
     );
 
     expect(screen.getByText("No venue meets every requirement.")).toBeTruthy();
-    expect(screen.getByText("Holds 40; 500 needed")).toBeTruthy();
+    expect(screen.getByText(/Holds 40; 500 needed/)).toBeTruthy();
   });
 });
 
@@ -390,9 +517,11 @@ describe("VenueListPage request links (PTR-138 AC1)", () => {
     );
 
     const results = screen.getByRole("region", { name: "Venue results" });
-    expect(linkSearch(within(results).getByRole("link", { name: "Great Hall" }))).toEqual(
-      requestSearch(41, sessionFilters)
-    );
+    const suitableLinks = within(results).getAllByRole("link", { name: "Great Hall" });
+    expect(suitableLinks).toHaveLength(2);
+    for (const link of suitableLinks) {
+      expect(linkSearch(link)).toEqual(requestSearch(41, sessionFilters));
+    }
     const unsuitable = screen.getByRole("region", { name: "Not suitable" });
     expect(linkSearch(within(unsuitable).getByRole("link", { name: "Small Room" }))).toBe(
       undefined

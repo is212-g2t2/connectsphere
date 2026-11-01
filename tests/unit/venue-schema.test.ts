@@ -138,13 +138,21 @@ describe("VenueInput (PTR-26)", () => {
     expect(() => parseVenueInput({ ...valid, name: `${atLimit}v` })).toThrow(NAME_TOO_LONG_MESSAGE);
   });
 
-  it("accepts every declared layout and refuses one outside the list", () => {
+  it("accepts every declared layout and checks only the key shape for new types", () => {
     expect(
       parseVenueInput({ ...valid, supportedLayouts: [...VENUE_LAYOUTS] }).supportedLayouts
     ).toEqual([...VENUE_LAYOUTS]);
-    expect(() => parseVenueInput({ ...valid, supportedLayouts: ["amphitheatre"] })).toThrow(
-      LAYOUT_MESSAGE
-    );
+    // PTR-161: the schema checks the key shape only. A well-formed unknown key passes here;
+    // the save handler refuses it with the same words.
+    expect(parseVenueInput({ ...valid, supportedLayouts: ["cabaret"] }).supportedLayouts).toEqual([
+      "cabaret",
+    ]);
+    expect(parseVenueInput({ ...valid, supportedLayouts: ["Cabaret"] }).supportedLayouts).toEqual([
+      "cabaret",
+    ]);
+    for (const key of ["", "a b", "Cabaret!", "a--b", "k".repeat(61)]) {
+      expect(() => parseVenueInput({ ...valid, supportedLayouts: [key] })).toThrow(LAYOUT_MESSAGE);
+    }
   });
 
   it("reports the first issue only, as a plain Error", () => {

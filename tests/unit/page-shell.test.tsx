@@ -96,9 +96,21 @@ describe("RootNotFoundPage", () => {
     render(<RootNotFoundPage />);
 
     expect(screen.getByRole("heading", { name: "404 - Not Found" })).toBeTruthy();
-    expect(screen.getByText("The page you are looking for does not exist.")).toBeTruthy();
+    // The sentence doubles as the human subtitle and the dev-only disclosure body. The subtitle
+    // renders exactly once; the disclosure repeats it only in development.
+    const copies = screen.getAllByText("The page you are looking for does not exist.");
+    expect(copies.filter(node => node.tagName === "P")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(Sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it("offers home and dashboard actions that stay in the product", () => {
+    render(<RootNotFoundPage />);
+
+    expect(screen.getByRole("link", { name: "Back to home" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: "Go to dashboard" }).getAttribute("href")).toBe(
+      "/dashboard"
+    );
   });
 });
 
@@ -126,5 +138,13 @@ describe("PageHeader", () => {
 
     expect(screen.queryByText("Dashboard")).toBeNull();
     expect(screen.getByRole("heading", { level: 1, name: "Venues" })).toBeTruthy();
+  });
+
+  it("renders the back link above the title", () => {
+    render(<PageHeader back={<a href="/venues">Back to venues</a>} title="Great Hall" />);
+
+    const back = screen.getByRole("link", { name: "Back to venues" });
+    const heading = screen.getByRole("heading", { level: 1, name: "Great Hall" });
+    expect(back.compareDocumentPosition(heading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });

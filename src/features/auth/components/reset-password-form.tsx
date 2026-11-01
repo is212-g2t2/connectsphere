@@ -1,6 +1,7 @@
 import { Button } from "#/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import { PasswordInput } from "#/features/auth/components/password-input";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
@@ -108,7 +109,7 @@ function RequestReset({ expired }: { expired: boolean }) {
         <form.Subscribe selector={s => s.isSubmitting}>
           {isSubmitting => (
             <Field>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting} className="min-h-11 w-full">
                 {isSubmitting ? "Sending link..." : "Send reset link"}
               </Button>
             </Field>
@@ -164,19 +165,16 @@ function SetNewPassword({ token }: { token: string }) {
           {field => (
             <Field>
               <FieldLabel htmlFor="password">New password</FieldLabel>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="new-password"
+                showRules
                 value={field.state.value}
                 onChange={e => field.handleChange(e.target.value)}
                 onBlur={field.handleBlur}
                 aria-invalid={field.state.meta.errors.length > 0}
               />
               <FieldError errors={field.state.meta.errors} />
-              <FieldDescription>
-                At least 8 characters, including a number and a symbol.
-              </FieldDescription>
             </Field>
           )}
         </form.Field>
@@ -191,7 +189,7 @@ function SetNewPassword({ token }: { token: string }) {
         <form.Subscribe selector={s => s.isSubmitting}>
           {isSubmitting => (
             <Field>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting} className="min-h-11 w-full">
                 {isSubmitting ? "Saving..." : "Save password"}
               </Button>
             </Field>

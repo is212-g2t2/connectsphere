@@ -268,7 +268,8 @@ async function openEventPageAs(page: Page, email: string) {
   await waitForHydration(page);
 }
 
-const card = (page: Page) => page.locator("[data-slot=card]").filter({ hasText: DEMO_EVENT });
+const card = (page: Page) =>
+  page.getByRole("list", { name: "Events" }).getByRole("listitem").filter({ hasText: DEMO_EVENT });
 
 const equipment = (page: Page) => page.locator("section#equipment");
 
@@ -284,8 +285,8 @@ const submitButton = (page: Page) =>
 async function addLine(page: Page, item: string, quantity: string, notes = "") {
   const panel = equipment(page);
   await panel.getByRole("button", { name: "Add line" }).first().click();
-  await panel.getByLabel("Equipment type (required)").fill(item);
-  await panel.getByLabel("Quantity (required)").fill(quantity);
+  await panel.getByLabel("Equipment type").fill(item);
+  await panel.getByLabel("Quantity").fill(quantity);
   if (notes) await panel.getByLabel("Technical notes").fill(notes);
   await panel.getByRole("button", { name: "Add line" }).last().click();
 }
@@ -321,22 +322,22 @@ test.describe("Coordinator equipment panel", () => {
     const panel = equipment(page);
     // oxlint-disable no-await-in-loop
     for (const bad of ["0", "-1", "1.5", ""]) {
-      if (!(await panel.getByLabel("Quantity (required)").isVisible())) {
+      if (!(await panel.getByLabel("Quantity").isVisible())) {
         await panel.getByRole("button", { name: "Add line" }).first().click();
       }
-      await panel.getByLabel("Equipment type (required)").fill("Projector");
-      await panel.getByLabel("Quantity (required)").fill(bad);
+      await panel.getByLabel("Equipment type").fill("Projector");
+      await panel.getByLabel("Quantity").fill(bad);
       await panel.getByRole("button", { name: "Add line" }).last().click();
 
       // The form stays open with nothing added.
-      await expect(panel.getByLabel("Quantity (required)")).toBeVisible();
+      await expect(panel.getByLabel("Quantity")).toBeVisible();
       await expect(panel.getByText("Projector ×")).toHaveCount(0);
       await expect(panel.getByText(EMPTY_STATE_MESSAGE)).toHaveCount(0); // The form stays open and hides the empty state.
     }
     // oxlint-enable no-await-in-loop
     expect(await countLines("Projector")).toBe(0);
 
-    await panel.getByLabel("Quantity (required)").fill("3");
+    await panel.getByLabel("Quantity").fill("3");
     await panel.getByRole("button", { name: "Add line" }).last().click();
     await expect(panel.getByText("× 3")).toBeVisible();
   });
@@ -347,7 +348,7 @@ test.describe("Coordinator equipment panel", () => {
     await addLine(page, "Projector", "1");
 
     await page.getByRole("button", { name: "Edit Projector" }).click();
-    await equipment(page).getByLabel("Quantity (required)").fill("4");
+    await equipment(page).getByLabel("Quantity").fill("4");
     await equipment(page).getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("Equipment line updated.")).toBeVisible();
     await page.reload();
@@ -410,8 +411,8 @@ test.describe("Coordinator equipment panel", () => {
   test("double-clicking Save creates one line", async ({ page }) => {
     const panel = equipment(page);
     await panel.getByRole("button", { name: "Add line" }).first().click();
-    await panel.getByLabel("Equipment type (required)").fill("Projector");
-    await panel.getByLabel("Quantity (required)").fill("1");
+    await panel.getByLabel("Equipment type").fill("Projector");
+    await panel.getByLabel("Quantity").fill("1");
     await panel.getByRole("button", { name: "Add line" }).last().dblclick();
 
     await expect(lineItem(page, "Projector")).toBeVisible();
@@ -475,9 +476,7 @@ test.describe("Read-only states and other roles", () => {
     await waitForHydration(page);
 
     // Let the dashboard finish rendering before asserting an absence.
-    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
-    // The venue workspace renders, so the absence below carries meaning.
-    await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Venue operations" })).toBeVisible();
     await expect(page.getByText(/Equipment (requirements|arrangements|lines)/)).toHaveCount(0);
   });
 });

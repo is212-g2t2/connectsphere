@@ -30,6 +30,7 @@ export const Route = createFileRoute("/_authenticated/coordination/")({
         unassigned: await listUnassignedEventRequests(),
         assigned: [],
         oversight: await listCoordinatorOversight(),
+        now: new Date(),
       };
     }
     return {
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/_authenticated/coordination/")({
       unassigned: [],
       assigned: await listAssignedEventRequests(),
       oversight: [],
+      now: new Date(),
     };
   },
   component: () => <CoordinationPage {...Route.useLoaderData()} />,

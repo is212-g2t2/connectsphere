@@ -83,8 +83,8 @@ test("the assigned Coordinator updates an approved event, and the change is reco
   await waitForHydration(page);
 
   await page.getByRole("button", { name: "Edit event information" }).click();
-  await page.getByLabel("Event name (required)").fill(renamed);
-  await page.getByLabel("Expected attendance (required)").fill("65");
+  await page.getByLabel("Event name").fill(renamed);
+  await page.getByLabel("Expected attendance").fill("65");
   await page.getByRole("button", { name: "Save changes" }).click();
 
   // PTR-23: the attendance is significant. The warning comes first. The event holds nothing.
@@ -159,7 +159,7 @@ test("an ordinary edit saves with no warning (PTR-23 AC4)", async ({ page }) => 
   await waitForHydration(page);
 
   await page.getByRole("button", { name: "Edit event information" }).click();
-  await page.getByLabel("Purpose (required)").fill("Plan the forum and the dinner");
+  await page.getByLabel("Purpose").fill("Plan the forum and the dinner");
   await page.getByRole("button", { name: "Save changes" }).click();
 
   await expect(page.getByText("Event information saved.", { exact: true })).toBeVisible();
@@ -198,7 +198,7 @@ test("a significant change names the booking the event holds, and saves on confi
     await waitForHydration(page);
 
     await page.getByRole("button", { name: "Edit event information" }).click();
-    await page.getByLabel("Proposed end 1 (required)").fill("2030-01-01T18:00");
+    await page.getByLabel("Proposed end 1").fill("2030-01-01T18:00");
     await page.getByRole("button", { name: "Save changes" }).click();
 
     const dialog = page.getByRole("alertdialog");

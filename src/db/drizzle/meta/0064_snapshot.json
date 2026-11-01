@@ -1,0 +1,3951 @@
+{
+  "id": "3ebc2884-d4a9-49a2-a606-6c48ca00421e",
+  "prevId": "24c7a991-e9d5-4d42-8d12-0dd9861b309e",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.clarification_requests": {
+      "name": "clarification_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "coordinator_id": {
+          "name": "coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permitted_fields": {
+          "name": "permitted_fields",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "reply_body": {
+          "name": "reply_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replied_by_organiser_id": {
+          "name": "replied_by_organiser_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replied_at": {
+          "name": "replied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amendments": {
+          "name": "amendments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "clarification_requests_event_request_id_idx": {
+          "name": "clarification_requests_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "clarification_requests_event_request_id_event_requests_id_fk": {
+          "name": "clarification_requests_event_request_id_event_requests_id_fk",
+          "tableFrom": "clarification_requests",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "clarification_requests_reply_complete": {
+          "name": "clarification_requests_reply_complete",
+          "value": "(\"clarification_requests\".\"reply_body\" is null and \"clarification_requests\".\"replied_by_organiser_id\" is null and \"clarification_requests\".\"replied_at\" is null) or (\"clarification_requests\".\"reply_body\" is not null and btrim(\"clarification_requests\".\"reply_body\") <> '' and \"clarification_requests\".\"replied_by_organiser_id\" is not null and \"clarification_requests\".\"replied_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.equipment_requests": {
+      "name": "equipment_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "equipment_type_id": {
+          "name": "equipment_type_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assigned_staff_id": {
+          "name": "assigned_staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "item": {
+          "name": "item",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "arrangement_status": {
+          "name": "arrangement_status",
+          "type": "equipment_arrangement_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'requested'"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "arrangement_notes": {
+          "name": "arrangement_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unavailable_reason": {
+          "name": "unavailable_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_released_by_staff_id": {
+          "name": "last_released_by_staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_released_by_staff_name": {
+          "name": "last_released_by_staff_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_released_at": {
+          "name": "last_released_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_released_quantity": {
+          "name": "last_released_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "equipment_requests_event_id_idx": {
+          "name": "equipment_requests_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_requests_assigned_staff_id_idx": {
+          "name": "equipment_requests_assigned_staff_id_idx",
+          "columns": [
+            {
+              "expression": "assigned_staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_requests_last_released_by_staff_id_idx": {
+          "name": "equipment_requests_last_released_by_staff_id_idx",
+          "columns": [
+            {
+              "expression": "last_released_by_staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "equipment_requests_event_id_event_requests_id_fk": {
+          "name": "equipment_requests_event_id_event_requests_id_fk",
+          "tableFrom": "equipment_requests",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "equipment_requests_equipment_type_id_equipment_types_id_fk": {
+          "name": "equipment_requests_equipment_type_id_equipment_types_id_fk",
+          "tableFrom": "equipment_requests",
+          "tableTo": "equipment_types",
+          "columnsFrom": ["equipment_type_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "equipment_requests_assigned_staff_id_user_id_fk": {
+          "name": "equipment_requests_assigned_staff_id_user_id_fk",
+          "tableFrom": "equipment_requests",
+          "tableTo": "user",
+          "columnsFrom": ["assigned_staff_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "equipment_requests_last_released_by_staff_id_user_id_fk": {
+          "name": "equipment_requests_last_released_by_staff_id_user_id_fk",
+          "tableFrom": "equipment_requests",
+          "tableTo": "user",
+          "columnsFrom": ["last_released_by_staff_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "equipment_requests_quantity_positive": {
+          "name": "equipment_requests_quantity_positive",
+          "value": "\"equipment_requests\".\"quantity\" > 0"
+        },
+        "equipment_requests_unavailable_has_reason": {
+          "name": "equipment_requests_unavailable_has_reason",
+          "value": "\"equipment_requests\".\"arrangement_status\"::text <> 'unavailable' or coalesce(\"equipment_requests\".\"unavailable_reason\", '') ~ '[^[:space:]]'"
+        },
+        "equipment_requests_last_released_positive": {
+          "name": "equipment_requests_last_released_positive",
+          "value": "\"equipment_requests\".\"last_released_quantity\" is null or \"equipment_requests\".\"last_released_quantity\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.equipment_reservations": {
+      "name": "equipment_reservations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "equipment_request_id": {
+          "name": "equipment_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "equipment_type_id": {
+          "name": "equipment_type_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "venue_request_id": {
+          "name": "venue_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "equipment_reservations_equipment_request_id_idx": {
+          "name": "equipment_reservations_equipment_request_id_idx",
+          "columns": [
+            {
+              "expression": "equipment_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_reservations_venue_request_id_idx": {
+          "name": "equipment_reservations_venue_request_id_idx",
+          "columns": [
+            {
+              "expression": "venue_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_reservations_type_period_idx": {
+          "name": "equipment_reservations_type_period_idx",
+          "columns": [
+            {
+              "expression": "equipment_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ends_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "equipment_reservations_equipment_request_id_equipment_requests_id_fk": {
+          "name": "equipment_reservations_equipment_request_id_equipment_requests_id_fk",
+          "tableFrom": "equipment_reservations",
+          "tableTo": "equipment_requests",
+          "columnsFrom": ["equipment_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "equipment_reservations_equipment_type_id_equipment_types_id_fk": {
+          "name": "equipment_reservations_equipment_type_id_equipment_types_id_fk",
+          "tableFrom": "equipment_reservations",
+          "tableTo": "equipment_types",
+          "columnsFrom": ["equipment_type_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "equipment_reservations_venue_request_id_venue_requests_id_fk": {
+          "name": "equipment_reservations_venue_request_id_venue_requests_id_fk",
+          "tableFrom": "equipment_reservations",
+          "tableTo": "venue_requests",
+          "columnsFrom": ["venue_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "equipment_reservations_quantity_positive": {
+          "name": "equipment_reservations_quantity_positive",
+          "value": "\"equipment_reservations\".\"quantity\" > 0"
+        },
+        "equipment_reservations_ends_after_starts": {
+          "name": "equipment_reservations_ends_after_starts",
+          "value": "\"equipment_reservations\".\"ends_at\" > \"equipment_reservations\".\"starts_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.equipment_types": {
+      "name": "equipment_types",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity_held": {
+          "name": "quantity_held",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "equipment_types_name_unique": {
+          "name": "equipment_types_name_unique",
+          "nullsNotDistinct": false,
+          "columns": ["name"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "equipment_types_quantity_held_positive": {
+          "name": "equipment_types_quantity_held_positive",
+          "value": "\"equipment_types\".\"quantity_held\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.equipment_unavailability": {
+      "name": "equipment_unavailability",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "equipment_type_id": {
+          "name": "equipment_type_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity_unavailable": {
+          "name": "quantity_unavailable",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "equipment_unavailability_type_reason_idx": {
+          "name": "equipment_unavailability_type_reason_idx",
+          "columns": [
+            {
+              "expression": "equipment_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reason",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "equipment_unavailability_equipment_type_id_equipment_types_id_fk": {
+          "name": "equipment_unavailability_equipment_type_id_equipment_types_id_fk",
+          "tableFrom": "equipment_unavailability",
+          "tableTo": "equipment_types",
+          "columnsFrom": ["equipment_type_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "equipment_unavailability_quantity_positive": {
+          "name": "equipment_unavailability_quantity_positive",
+          "value": "\"equipment_unavailability\".\"quantity_unavailable\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_assignments": {
+      "name": "event_assignments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_coordinator_id": {
+          "name": "from_coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "to_coordinator_id": {
+          "name": "to_coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "event_assignments_event_request_id_event_requests_id_fk": {
+          "name": "event_assignments_event_request_id_event_requests_id_fk",
+          "tableFrom": "event_assignments",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.event_cancellation_requests": {
+      "name": "event_cancellation_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organiser_id": {
+          "name": "organiser_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "event_cancellation_outcome",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decline_reason": {
+          "name": "decline_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_by_id": {
+          "name": "processed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_by_name": {
+          "name": "processed_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "event_cancellation_requests_event_request_id_idx": {
+          "name": "event_cancellation_requests_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_cancellation_requests_open_event_idx": {
+          "name": "event_cancellation_requests_open_event_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"event_cancellation_requests\".\"outcome\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_cancellation_requests_event_request_id_event_requests_id_fk": {
+          "name": "event_cancellation_requests_event_request_id_event_requests_id_fk",
+          "tableFrom": "event_cancellation_requests",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "event_cancellation_requests_organiser_id_user_id_fk": {
+          "name": "event_cancellation_requests_organiser_id_user_id_fk",
+          "tableFrom": "event_cancellation_requests",
+          "tableTo": "user",
+          "columnsFrom": ["organiser_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "event_cancellation_requests_outcome_complete": {
+          "name": "event_cancellation_requests_outcome_complete",
+          "value": "(\"event_cancellation_requests\".\"outcome\" is null and \"event_cancellation_requests\".\"processed_by_id\" is null and \"event_cancellation_requests\".\"processed_by_name\" is null and \"event_cancellation_requests\".\"processed_at\" is null and \"event_cancellation_requests\".\"decline_reason\" is null) or (\"event_cancellation_requests\".\"outcome\" is not null and \"event_cancellation_requests\".\"processed_by_id\" is not null and btrim(\"event_cancellation_requests\".\"processed_by_id\") <> '' and \"event_cancellation_requests\".\"processed_by_name\" is not null and btrim(\"event_cancellation_requests\".\"processed_by_name\") <> '' and \"event_cancellation_requests\".\"processed_at\" is not null)"
+        },
+        "event_cancellation_requests_decline_has_reason": {
+          "name": "event_cancellation_requests_decline_has_reason",
+          "value": "(\"event_cancellation_requests\".\"outcome\"::text = 'declined' and coalesce(\"event_cancellation_requests\".\"decline_reason\", '') ~ '[^[:space:]]') or (\"event_cancellation_requests\".\"outcome\" is distinct from 'declined' and \"event_cancellation_requests\".\"decline_reason\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_change_requests": {
+      "name": "event_change_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organiser_id": {
+          "name": "organiser_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "what_should_change": {
+          "name": "what_should_change",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_value": {
+          "name": "requested_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "event_change_outcome",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decline_reason": {
+          "name": "decline_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_by_id": {
+          "name": "processed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_by_name": {
+          "name": "processed_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "event_change_requests_event_request_id_idx": {
+          "name": "event_change_requests_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_change_requests_event_request_id_event_requests_id_fk": {
+          "name": "event_change_requests_event_request_id_event_requests_id_fk",
+          "tableFrom": "event_change_requests",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "event_change_requests_organiser_id_user_id_fk": {
+          "name": "event_change_requests_organiser_id_user_id_fk",
+          "tableFrom": "event_change_requests",
+          "tableTo": "user",
+          "columnsFrom": ["organiser_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "event_change_requests_outcome_complete": {
+          "name": "event_change_requests_outcome_complete",
+          "value": "(\"event_change_requests\".\"outcome\" is null and \"event_change_requests\".\"processed_by_id\" is null and \"event_change_requests\".\"processed_by_name\" is null and \"event_change_requests\".\"processed_at\" is null and \"event_change_requests\".\"decline_reason\" is null) or (\"event_change_requests\".\"outcome\" is not null and \"event_change_requests\".\"processed_by_id\" is not null and btrim(\"event_change_requests\".\"processed_by_id\") <> '' and \"event_change_requests\".\"processed_by_name\" is not null and btrim(\"event_change_requests\".\"processed_by_name\") <> '' and \"event_change_requests\".\"processed_at\" is not null)"
+        },
+        "event_change_requests_decline_has_reason": {
+          "name": "event_change_requests_decline_has_reason",
+          "value": "(\"event_change_requests\".\"outcome\"::text = 'declined' and coalesce(\"event_change_requests\".\"decline_reason\", '') ~ '[^[:space:]]') or (\"event_change_requests\".\"outcome\" is distinct from 'declined' and \"event_change_requests\".\"decline_reason\" is null)"
+        },
+        "event_change_requests_what_should_change_present": {
+          "name": "event_change_requests_what_should_change_present",
+          "value": "btrim(\"event_change_requests\".\"what_should_change\") <> '' and char_length(\"event_change_requests\".\"what_should_change\") <= 2000"
+        },
+        "event_change_requests_requested_value_present": {
+          "name": "event_change_requests_requested_value_present",
+          "value": "btrim(\"event_change_requests\".\"requested_value\") <> '' and char_length(\"event_change_requests\".\"requested_value\") <= 2000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_handovers": {
+      "name": "event_handovers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_coordinator_id": {
+          "name": "from_coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_coordinator_id": {
+          "name": "to_coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "decision": {
+          "name": "decision",
+          "type": "event_handover_decision",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_id": {
+          "name": "decided_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "event_handovers_pending_event_idx": {
+          "name": "event_handovers_pending_event_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"event_handovers\".\"decision\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_handovers_to_coordinator_id_idx": {
+          "name": "event_handovers_to_coordinator_id_idx",
+          "columns": [
+            {
+              "expression": "to_coordinator_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_handovers_event_request_id_event_requests_id_fk": {
+          "name": "event_handovers_event_request_id_event_requests_id_fk",
+          "tableFrom": "event_handovers",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "event_handovers_decision_complete": {
+          "name": "event_handovers_decision_complete",
+          "value": "(\"event_handovers\".\"decision\" is null and \"event_handovers\".\"decided_by_id\" is null and \"event_handovers\".\"decided_at\" is null) or (\"event_handovers\".\"decision\" is not null and \"event_handovers\".\"decided_by_id\" is not null and \"event_handovers\".\"decided_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_information_changes": {
+      "name": "event_information_changes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field": {
+          "name": "field",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amendment": {
+          "name": "amendment",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_by_id": {
+          "name": "changed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_by_name": {
+          "name": "changed_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_at": {
+          "name": "changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "event_information_changes_event_request_id_idx": {
+          "name": "event_information_changes_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_information_changes_event_request_id_event_requests_id_fk": {
+          "name": "event_information_changes_event_request_id_event_requests_id_fk",
+          "tableFrom": "event_information_changes",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.event_registrations": {
+      "name": "event_registrations",
+      "schema": "",
+      "columns": {
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attendee_id": {
+          "name": "attendee_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "event_registration_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'registered'"
+        },
+        "registered_at": {
+          "name": "registered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "vip": {
+          "name": "vip",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "event_registrations_attendee_id_idx": {
+          "name": "event_registrations_attendee_id_idx",
+          "columns": [
+            {
+              "expression": "attendee_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_registrations_event_status_idx": {
+          "name": "event_registrations_event_status_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_registrations_event_id_event_requests_id_fk": {
+          "name": "event_registrations_event_id_event_requests_id_fk",
+          "tableFrom": "event_registrations",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "event_registrations_attendee_id_user_id_fk": {
+          "name": "event_registrations_attendee_id_user_id_fk",
+          "tableFrom": "event_registrations",
+          "tableTo": "user",
+          "columnsFrom": ["attendee_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "event_registrations_event_id_attendee_id_pk": {
+          "name": "event_registrations_event_id_attendee_id_pk",
+          "columns": ["event_id", "attendee_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.event_request_attachments": {
+      "name": "event_request_attachments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_filename": {
+          "name": "original_filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "uploaded_by_id": {
+          "name": "uploaded_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "event_request_attachments_event_request_id_idx": {
+          "name": "event_request_attachments_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_request_attachments_event_request_id_event_requests_id_fk": {
+          "name": "event_request_attachments_event_request_id_event_requests_id_fk",
+          "tableFrom": "event_request_attachments",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "event_request_attachments_uploaded_by_id_user_id_fk": {
+          "name": "event_request_attachments_uploaded_by_id_user_id_fk",
+          "tableFrom": "event_request_attachments",
+          "tableTo": "user",
+          "columnsFrom": ["uploaded_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "event_request_attachments_object_key_unique": {
+          "name": "event_request_attachments_object_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["object_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "event_request_attachments_size_positive": {
+          "name": "event_request_attachments_size_positive",
+          "value": "\"event_request_attachments\".\"size_bytes\" > 0"
+        },
+        "event_request_attachments_size_limit": {
+          "name": "event_request_attachments_size_limit",
+          "value": "\"event_request_attachments\".\"size_bytes\" <= 10485760"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_requests": {
+      "name": "event_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "organiser_id": {
+          "name": "organiser_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "event_request_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "submitted_at": {
+          "name": "submitted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assigned_coordinator_id": {
+          "name": "assigned_coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assigned_at": {
+          "name": "assigned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_reason": {
+          "name": "decision_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_coordinator_id": {
+          "name": "decided_by_coordinator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_coordinator_name": {
+          "name": "decided_by_coordinator_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_by_id": {
+          "name": "confirmed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_by_name": {
+          "name": "confirmed_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_by_id": {
+          "name": "completed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_by_name": {
+          "name": "completed_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_by_id": {
+          "name": "cancelled_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_by_name": {
+          "name": "cancelled_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "event_name": {
+          "name": "event_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "proposed_dates": {
+          "name": "proposed_dates",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "expected_attendance": {
+          "name": "expected_attendance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "venue_requirements": {
+          "name": "venue_requirements",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "room_layout_preference": {
+          "name": "room_layout_preference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "accessibility_requirements": {
+          "name": "accessibility_requirements",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "equipment_requirements": {
+          "name": "equipment_requirements",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "equipment_submitted_at": {
+          "name": "equipment_submitted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "equipment_arrangements_completed_at": {
+          "name": "equipment_arrangements_completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "equipment_arrangements_completed_by_id": {
+          "name": "equipment_arrangements_completed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "special_arrangements": {
+          "name": "special_arrangements",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "registration_enabled": {
+          "name": "registration_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "registration_capacity": {
+          "name": "registration_capacity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registration_opens_at": {
+          "name": "registration_opens_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registration_closes_at": {
+          "name": "registration_closes_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "event_requests_organiser_id_idx": {
+          "name": "event_requests_organiser_id_idx",
+          "columns": [
+            {
+              "expression": "organiser_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_requests_assigned_coordinator_id_idx": {
+          "name": "event_requests_assigned_coordinator_id_idx",
+          "columns": [
+            {
+              "expression": "assigned_coordinator_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_requests_equipment_arrangements_completed_by_id_idx": {
+          "name": "event_requests_equipment_arrangements_completed_by_id_idx",
+          "columns": [
+            {
+              "expression": "equipment_arrangements_completed_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_requests_organiser_id_user_id_fk": {
+          "name": "event_requests_organiser_id_user_id_fk",
+          "tableFrom": "event_requests",
+          "tableTo": "user",
+          "columnsFrom": ["organiser_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "event_requests_assigned_coordinator_id_user_id_fk": {
+          "name": "event_requests_assigned_coordinator_id_user_id_fk",
+          "tableFrom": "event_requests",
+          "tableTo": "user",
+          "columnsFrom": ["assigned_coordinator_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "event_requests_equipment_arrangements_completed_by_id_user_id_fk": {
+          "name": "event_requests_equipment_arrangements_completed_by_id_user_id_fk",
+          "tableFrom": "event_requests",
+          "tableTo": "user",
+          "columnsFrom": ["equipment_arrangements_completed_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "event_requests_submission_time_matches_status": {
+          "name": "event_requests_submission_time_matches_status",
+          "value": "(\"event_requests\".\"status\" = 'draft' and \"event_requests\".\"submitted_at\" is null) or (\"event_requests\".\"status\" <> 'draft' and \"event_requests\".\"submitted_at\" is not null)"
+        },
+        "event_requests_coordinator_has_assignment_time": {
+          "name": "event_requests_coordinator_has_assignment_time",
+          "value": "\"event_requests\".\"assigned_coordinator_id\" is null or \"event_requests\".\"assigned_at\" is not null"
+        },
+        "event_requests_draft_has_no_coordinator": {
+          "name": "event_requests_draft_has_no_coordinator",
+          "value": "\"event_requests\".\"status\" <> 'draft' or \"event_requests\".\"assigned_coordinator_id\" is null"
+        },
+        "event_requests_decision_matches_status": {
+          "name": "event_requests_decision_matches_status",
+          "value": "(\"event_requests\".\"status\"::text in ('approved', 'rejected', 'planning', 'confirmed', 'completed') and \"event_requests\".\"decided_by_coordinator_id\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_id\") <> '' and \"event_requests\".\"decided_by_coordinator_name\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_name\") <> '' and \"event_requests\".\"decided_at\" is not null) or (\"event_requests\".\"status\"::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and \"event_requests\".\"decision_reason\" is null and \"event_requests\".\"decided_by_coordinator_id\" is null and \"event_requests\".\"decided_by_coordinator_name\" is null and \"event_requests\".\"decided_at\" is null) or (\"event_requests\".\"status\"::text = 'cancelled' and ((\"event_requests\".\"decided_by_coordinator_id\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_id\") <> '' and \"event_requests\".\"decided_by_coordinator_name\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_name\") <> '' and \"event_requests\".\"decided_at\" is not null) or (\"event_requests\".\"decision_reason\" is null and \"event_requests\".\"decided_by_coordinator_id\" is null and \"event_requests\".\"decided_by_coordinator_name\" is null and \"event_requests\".\"decided_at\" is null)))"
+        },
+        "event_requests_confirmation_matches_status": {
+          "name": "event_requests_confirmation_matches_status",
+          "value": "(\"event_requests\".\"status\"::text = 'confirmed' and \"event_requests\".\"confirmed_by_id\" is not null and btrim(\"event_requests\".\"confirmed_by_id\") <> '' and \"event_requests\".\"confirmed_by_name\" is not null and btrim(\"event_requests\".\"confirmed_by_name\") <> '' and \"event_requests\".\"confirmed_at\" is not null) or (\"event_requests\".\"status\"::text in ('completed', 'cancelled') and ((\"event_requests\".\"confirmed_by_id\" is not null and btrim(\"event_requests\".\"confirmed_by_id\") <> '' and \"event_requests\".\"confirmed_by_name\" is not null and btrim(\"event_requests\".\"confirmed_by_name\") <> '' and \"event_requests\".\"confirmed_at\" is not null) or (\"event_requests\".\"confirmed_by_id\" is null and \"event_requests\".\"confirmed_by_name\" is null and \"event_requests\".\"confirmed_at\" is null))) or (\"event_requests\".\"status\"::text not in ('confirmed', 'completed', 'cancelled') and \"event_requests\".\"confirmed_by_id\" is null and \"event_requests\".\"confirmed_by_name\" is null and \"event_requests\".\"confirmed_at\" is null)"
+        },
+        "event_requests_completion_matches_status": {
+          "name": "event_requests_completion_matches_status",
+          "value": "(\"event_requests\".\"status\"::text = 'completed' and \"event_requests\".\"completed_by_id\" is not null and btrim(\"event_requests\".\"completed_by_id\") <> '' and \"event_requests\".\"completed_by_name\" is not null and btrim(\"event_requests\".\"completed_by_name\") <> '' and \"event_requests\".\"completed_at\" is not null) or (\"event_requests\".\"status\"::text = 'cancelled' and ((\"event_requests\".\"completed_by_id\" is not null and btrim(\"event_requests\".\"completed_by_id\") <> '' and \"event_requests\".\"completed_by_name\" is not null and btrim(\"event_requests\".\"completed_by_name\") <> '' and \"event_requests\".\"completed_at\" is not null) or (\"event_requests\".\"completed_by_id\" is null and \"event_requests\".\"completed_by_name\" is null and \"event_requests\".\"completed_at\" is null))) or (\"event_requests\".\"status\"::text not in ('completed', 'cancelled') and \"event_requests\".\"completed_by_id\" is null and \"event_requests\".\"completed_by_name\" is null and \"event_requests\".\"completed_at\" is null)"
+        },
+        "event_requests_cancellation_matches_status": {
+          "name": "event_requests_cancellation_matches_status",
+          "value": "(\"event_requests\".\"status\"::text = 'cancelled' and \"event_requests\".\"cancelled_by_id\" is not null and btrim(\"event_requests\".\"cancelled_by_id\") <> '' and \"event_requests\".\"cancelled_by_name\" is not null and btrim(\"event_requests\".\"cancelled_by_name\") <> '' and \"event_requests\".\"cancelled_at\" is not null) or (\"event_requests\".\"status\"::text <> 'cancelled' and \"event_requests\".\"cancelled_by_id\" is null and \"event_requests\".\"cancelled_by_name\" is null and \"event_requests\".\"cancelled_at\" is null)"
+        },
+        "event_requests_rejection_has_reason": {
+          "name": "event_requests_rejection_has_reason",
+          "value": "\"event_requests\".\"status\"::text <> 'rejected' or (\"event_requests\".\"decision_reason\" is not null and btrim(\"event_requests\".\"decision_reason\") <> '')"
+        },
+        "event_requests_registration_terms_match_enabled": {
+          "name": "event_requests_registration_terms_match_enabled",
+          "value": "(\"event_requests\".\"registration_enabled\" and \"event_requests\".\"registration_capacity\" is not null and \"event_requests\".\"registration_opens_at\" is not null and \"event_requests\".\"registration_closes_at\" is not null) or (not \"event_requests\".\"registration_enabled\" and \"event_requests\".\"registration_capacity\" is null and \"event_requests\".\"registration_opens_at\" is null and \"event_requests\".\"registration_closes_at\" is null)"
+        },
+        "event_requests_registration_capacity_positive": {
+          "name": "event_requests_registration_capacity_positive",
+          "value": "\"event_requests\".\"registration_capacity\" is null or \"event_requests\".\"registration_capacity\" > 0"
+        },
+        "event_requests_registration_closes_after_opens": {
+          "name": "event_requests_registration_closes_after_opens",
+          "value": "\"event_requests\".\"registration_opens_at\" is null or \"event_requests\".\"registration_closes_at\" is null or \"event_requests\".\"registration_closes_at\" > \"event_requests\".\"registration_opens_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.notifications": {
+      "name": "notifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "recipient_id": {
+          "name": "recipient_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "notification_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "emailed_at": {
+          "name": "emailed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failed_at": {
+          "name": "failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email_attempts": {
+          "name": "email_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_email_error": {
+          "name": "last_email_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "notifications_recipient_created_at_idx": {
+          "name": "notifications_recipient_created_at_idx",
+          "columns": [
+            {
+              "expression": "recipient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_unread_recipient_idx": {
+          "name": "notifications_unread_recipient_idx",
+          "columns": [
+            {
+              "expression": "recipient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"notifications\".\"read_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_pending_idx": {
+          "name": "notifications_pending_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"notifications\".\"emailed_at\" is null and \"notifications\".\"failed_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_event_request_id_idx": {
+          "name": "notifications_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "notifications_recipient_id_user_id_fk": {
+          "name": "notifications_recipient_id_user_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "notifications_event_request_id_event_requests_id_fk": {
+          "name": "notifications_event_request_id_event_requests_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.room_layouts": {
+      "name": "room_layouts",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "room_layouts_label_unique": {
+          "name": "room_layouts_label_unique",
+          "nullsNotDistinct": false,
+          "columns": ["label"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.safety_reviews": {
+      "name": "safety_reviews",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_request_id": {
+          "name": "event_request_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "safety_review_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "comments": {
+          "name": "comments",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_id": {
+          "name": "decided_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_name": {
+          "name": "decided_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "refreshed_at": {
+          "name": "refreshed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "safety_reviews_pending_event_idx": {
+          "name": "safety_reviews_pending_event_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"safety_reviews\".\"state\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "safety_reviews_event_request_id_idx": {
+          "name": "safety_reviews_event_request_id_idx",
+          "columns": [
+            {
+              "expression": "event_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "safety_reviews_event_request_id_event_requests_id_fk": {
+          "name": "safety_reviews_event_request_id_event_requests_id_fk",
+          "tableFrom": "safety_reviews",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "safety_reviews_fingerprint_present": {
+          "name": "safety_reviews_fingerprint_present",
+          "value": "btrim(\"safety_reviews\".\"fingerprint\") <> ''"
+        },
+        "safety_reviews_decision_complete": {
+          "name": "safety_reviews_decision_complete",
+          "value": "(\"safety_reviews\".\"state\"::text = 'pending' and \"safety_reviews\".\"decided_by_id\" is null and \"safety_reviews\".\"decided_by_name\" is null and \"safety_reviews\".\"decided_at\" is null and \"safety_reviews\".\"comments\" is null) or (\"safety_reviews\".\"state\"::text <> 'pending' and \"safety_reviews\".\"decided_by_id\" is not null and btrim(\"safety_reviews\".\"decided_by_id\") <> '' and \"safety_reviews\".\"decided_by_name\" is not null and btrim(\"safety_reviews\".\"decided_by_name\") <> '' and \"safety_reviews\".\"decided_at\" is not null)"
+        },
+        "safety_reviews_comments_match_state": {
+          "name": "safety_reviews_comments_match_state",
+          "value": "(\"safety_reviews\".\"state\"::text = 'pending' and \"safety_reviews\".\"comments\" is null) or (\"safety_reviews\".\"state\"::text = 'approved' and (\"safety_reviews\".\"comments\" is null or \"safety_reviews\".\"comments\" ~ '[^[:space:]]')) or (\"safety_reviews\".\"state\"::text in ('rejected', 'changes_requested') and coalesce(\"safety_reviews\".\"comments\", '') ~ '[^[:space:]]')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venue_buffer_changes": {
+      "name": "venue_buffer_changes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "previous_setup_minutes": {
+          "name": "previous_setup_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "previous_turnaround_minutes": {
+          "name": "previous_turnaround_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "setup_minutes": {
+          "name": "setup_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turnaround_minutes": {
+          "name": "turnaround_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_by_id": {
+          "name": "changed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_at": {
+          "name": "changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        }
+      },
+      "indexes": {
+        "venue_buffer_changes_venue_id_idx": {
+          "name": "venue_buffer_changes_venue_id_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "venue_buffer_changes_venue_id_venues_id_fk": {
+          "name": "venue_buffer_changes_venue_id_venues_id_fk",
+          "tableFrom": "venue_buffer_changes",
+          "tableTo": "venues",
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.venue_holds": {
+      "name": "venue_holds",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "setup_minutes": {
+          "name": "setup_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "turnaround_minutes": {
+          "name": "turnaround_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "status": {
+          "name": "status",
+          "type": "venue_hold_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'held'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warn_at": {
+          "name": "warn_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expiry_changed_by_id": {
+          "name": "expiry_changed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expiry_changed_at": {
+          "name": "expiry_changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "held_by_id": {
+          "name": "held_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "released_by_id": {
+          "name": "released_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "placed_by_id": {
+          "name": "placed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decline_reason": {
+          "name": "decline_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declined_by_id": {
+          "name": "declined_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "venue_holds_event_id_idx": {
+          "name": "venue_holds_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_venue_id_starts_at_idx": {
+          "name": "venue_holds_venue_id_starts_at_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_venue_id_occupied_start_idx": {
+          "name": "venue_holds_venue_id_occupied_start_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "(\"starts_at\" - make_interval(mins => \"setup_minutes\"))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_expiry_changed_by_id_idx": {
+          "name": "venue_holds_expiry_changed_by_id_idx",
+          "columns": [
+            {
+              "expression": "expiry_changed_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_held_by_id_idx": {
+          "name": "venue_holds_held_by_id_idx",
+          "columns": [
+            {
+              "expression": "held_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_released_by_id_idx": {
+          "name": "venue_holds_released_by_id_idx",
+          "columns": [
+            {
+              "expression": "released_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_placed_by_id_idx": {
+          "name": "venue_holds_placed_by_id_idx",
+          "columns": [
+            {
+              "expression": "placed_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_declined_by_id_idx": {
+          "name": "venue_holds_declined_by_id_idx",
+          "columns": [
+            {
+              "expression": "declined_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "venue_holds_event_id_event_requests_id_fk": {
+          "name": "venue_holds_event_id_event_requests_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_holds_venue_id_venues_id_fk": {
+          "name": "venue_holds_venue_id_venues_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "venues",
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "venue_holds_expiry_changed_by_id_user_id_fk": {
+          "name": "venue_holds_expiry_changed_by_id_user_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "user",
+          "columnsFrom": ["expiry_changed_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_holds_held_by_id_user_id_fk": {
+          "name": "venue_holds_held_by_id_user_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "user",
+          "columnsFrom": ["held_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_holds_released_by_id_user_id_fk": {
+          "name": "venue_holds_released_by_id_user_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "user",
+          "columnsFrom": ["released_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_holds_placed_by_id_user_id_fk": {
+          "name": "venue_holds_placed_by_id_user_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "user",
+          "columnsFrom": ["placed_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_holds_declined_by_id_user_id_fk": {
+          "name": "venue_holds_declined_by_id_user_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "user",
+          "columnsFrom": ["declined_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "venue_holds_ends_after_starts": {
+          "name": "venue_holds_ends_after_starts",
+          "value": "\"venue_holds\".\"ends_at\" > \"venue_holds\".\"starts_at\""
+        },
+        "venue_holds_decline_reason_matches_status": {
+          "name": "venue_holds_decline_reason_matches_status",
+          "value": "(\"venue_holds\".\"status\"::text = 'declined' and coalesce(\"venue_holds\".\"decline_reason\", '') ~ '[^[:space:]]') or (\"venue_holds\".\"status\"::text <> 'declined' and \"venue_holds\".\"decline_reason\" is null)"
+        },
+        "venue_holds_setup_minutes_nonnegative": {
+          "name": "venue_holds_setup_minutes_nonnegative",
+          "value": "\"venue_holds\".\"setup_minutes\" >= 0"
+        },
+        "venue_holds_turnaround_minutes_nonnegative": {
+          "name": "venue_holds_turnaround_minutes_nonnegative",
+          "value": "\"venue_holds\".\"turnaround_minutes\" >= 0"
+        },
+        "venue_holds_warn_before_expiry": {
+          "name": "venue_holds_warn_before_expiry",
+          "value": "\"venue_holds\".\"warn_at\" is null or (\"venue_holds\".\"expires_at\" is not null and \"venue_holds\".\"warn_at\" < \"venue_holds\".\"expires_at\")"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venue_occupancy": {
+      "name": "venue_occupancy",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "venue_request_id": {
+          "name": "venue_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "venue_hold_id": {
+          "name": "venue_hold_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "venue_unavailability_id": {
+          "name": "venue_unavailability_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "setup_minutes": {
+          "name": "setup_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "turnaround_minutes": {
+          "name": "turnaround_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {
+        "venue_occupancy_venue_request_id_idx": {
+          "name": "venue_occupancy_venue_request_id_idx",
+          "columns": [
+            {
+              "expression": "venue_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_occupancy_venue_hold_id_idx": {
+          "name": "venue_occupancy_venue_hold_id_idx",
+          "columns": [
+            {
+              "expression": "venue_hold_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_occupancy_venue_unavailability_id_idx": {
+          "name": "venue_occupancy_venue_unavailability_id_idx",
+          "columns": [
+            {
+              "expression": "venue_unavailability_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_occupancy_event_id_idx": {
+          "name": "venue_occupancy_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_occupancy_venue_id_starts_at_idx": {
+          "name": "venue_occupancy_venue_id_starts_at_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "venue_occupancy_venue_id_venues_id_fk": {
+          "name": "venue_occupancy_venue_id_venues_id_fk",
+          "tableFrom": "venue_occupancy",
+          "tableTo": "venues",
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_occupancy_event_id_event_requests_id_fk": {
+          "name": "venue_occupancy_event_id_event_requests_id_fk",
+          "tableFrom": "venue_occupancy",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_occupancy_venue_request_id_venue_requests_id_fk": {
+          "name": "venue_occupancy_venue_request_id_venue_requests_id_fk",
+          "tableFrom": "venue_occupancy",
+          "tableTo": "venue_requests",
+          "columnsFrom": ["venue_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_occupancy_venue_hold_id_venue_holds_id_fk": {
+          "name": "venue_occupancy_venue_hold_id_venue_holds_id_fk",
+          "tableFrom": "venue_occupancy",
+          "tableTo": "venue_holds",
+          "columnsFrom": ["venue_hold_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_occupancy_venue_unavailability_id_venue_unavailability_id_fk": {
+          "name": "venue_occupancy_venue_unavailability_id_venue_unavailability_id_fk",
+          "tableFrom": "venue_occupancy",
+          "tableTo": "venue_unavailability",
+          "columnsFrom": ["venue_unavailability_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "venue_occupancy_one_source": {
+          "name": "venue_occupancy_one_source",
+          "value": "num_nonnulls(\"venue_occupancy\".\"venue_request_id\", \"venue_occupancy\".\"venue_hold_id\", \"venue_occupancy\".\"venue_unavailability_id\") = 1"
+        },
+        "venue_occupancy_event_matches_source": {
+          "name": "venue_occupancy_event_matches_source",
+          "value": "(\"venue_occupancy\".\"event_id\" is null) = (\"venue_occupancy\".\"venue_unavailability_id\" is not null)"
+        },
+        "venue_occupancy_ends_after_starts": {
+          "name": "venue_occupancy_ends_after_starts",
+          "value": "\"venue_occupancy\".\"ends_at\" is null or \"venue_occupancy\".\"ends_at\" > \"venue_occupancy\".\"starts_at\""
+        },
+        "venue_occupancy_unbounded_only_for_block": {
+          "name": "venue_occupancy_unbounded_only_for_block",
+          "value": "\"venue_occupancy\".\"ends_at\" is not null or \"venue_occupancy\".\"venue_unavailability_id\" is not null"
+        },
+        "venue_occupancy_setup_minutes_nonnegative": {
+          "name": "venue_occupancy_setup_minutes_nonnegative",
+          "value": "\"venue_occupancy\".\"setup_minutes\" >= 0"
+        },
+        "venue_occupancy_turnaround_minutes_nonnegative": {
+          "name": "venue_occupancy_turnaround_minutes_nonnegative",
+          "value": "\"venue_occupancy\".\"turnaround_minutes\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venue_requests": {
+      "name": "venue_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_staff_id": {
+          "name": "assigned_staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_changed_by_staff_id": {
+          "name": "last_changed_by_staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_changed_by_staff_name": {
+          "name": "last_changed_by_staff_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_changed_at": {
+          "name": "last_changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by_id": {
+          "name": "requested_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "venue_request_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "rejection_reason": {
+          "name": "rejection_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "release_reason": {
+          "name": "release_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suggested_venue_id": {
+          "name": "suggested_venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suggested_date": {
+          "name": "suggested_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suggested_start_time": {
+          "name": "suggested_start_time",
+          "type": "time",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suggested_end_time": {
+          "name": "suggested_end_time",
+          "type": "time",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expected_attendance": {
+          "name": "expected_attendance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "layout": {
+          "name": "layout",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accessibility_requirements": {
+          "name": "accessibility_requirements",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "required_facilities": {
+          "name": "required_facilities",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replaces_request_id": {
+          "name": "replaces_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dismissed_at": {
+          "name": "dismissed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dismissed_by_id": {
+          "name": "dismissed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "venue_requests_pending_event_venue_window_idx": {
+          "name": "venue_requests_pending_event_venue_window_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ends_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"venue_requests\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_replaces_request_id_idx": {
+          "name": "venue_requests_replaces_request_id_idx",
+          "columns": [
+            {
+              "expression": "replaces_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"venue_requests\".\"status\" <> 'withdrawn'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_replaces_request_id_lookup_idx": {
+          "name": "venue_requests_replaces_request_id_lookup_idx",
+          "columns": [
+            {
+              "expression": "replaces_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_dismissed_by_id_idx": {
+          "name": "venue_requests_dismissed_by_id_idx",
+          "columns": [
+            {
+              "expression": "dismissed_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_event_id_idx": {
+          "name": "venue_requests_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_assigned_staff_id_idx": {
+          "name": "venue_requests_assigned_staff_id_idx",
+          "columns": [
+            {
+              "expression": "assigned_staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_venue_period_idx": {
+          "name": "venue_requests_venue_period_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ends_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"venue_requests\".\"status\" = 'approved'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_requests_approved_starts_at_idx": {
+          "name": "venue_requests_approved_starts_at_idx",
+          "columns": [
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"venue_requests\".\"status\" = 'approved'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "venue_requests_event_id_event_requests_id_fk": {
+          "name": "venue_requests_event_id_event_requests_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_requests_venue_id_venues_id_fk": {
+          "name": "venue_requests_venue_id_venues_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "venues",
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "venue_requests_assigned_staff_id_user_id_fk": {
+          "name": "venue_requests_assigned_staff_id_user_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "user",
+          "columnsFrom": ["assigned_staff_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_requests_last_changed_by_staff_id_user_id_fk": {
+          "name": "venue_requests_last_changed_by_staff_id_user_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "user",
+          "columnsFrom": ["last_changed_by_staff_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_requests_requested_by_id_user_id_fk": {
+          "name": "venue_requests_requested_by_id_user_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "user",
+          "columnsFrom": ["requested_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_requests_suggested_venue_id_venues_id_fk": {
+          "name": "venue_requests_suggested_venue_id_venues_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "venues",
+          "columnsFrom": ["suggested_venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_requests_replaces_request_id_venue_requests_id_fk": {
+          "name": "venue_requests_replaces_request_id_venue_requests_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "venue_requests",
+          "columnsFrom": ["replaces_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_requests_dismissed_by_id_user_id_fk": {
+          "name": "venue_requests_dismissed_by_id_user_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "user",
+          "columnsFrom": ["dismissed_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "venue_requests_ends_after_starts": {
+          "name": "venue_requests_ends_after_starts",
+          "value": "\"venue_requests\".\"ends_at\" > \"venue_requests\".\"starts_at\""
+        },
+        "venue_requests_rejection_has_reason": {
+          "name": "venue_requests_rejection_has_reason",
+          "value": "\"venue_requests\".\"status\"::text <> 'rejected' or coalesce(\"venue_requests\".\"rejection_reason\", '') ~ '[^[:space:]]'"
+        },
+        "venue_requests_release_has_reason": {
+          "name": "venue_requests_release_has_reason",
+          "value": "\"venue_requests\".\"status\"::text <> 'released' or coalesce(\"venue_requests\".\"release_reason\", '') ~ '[^[:space:]]'"
+        },
+        "venue_requests_dismissal_settled": {
+          "name": "venue_requests_dismissal_settled",
+          "value": "\"venue_requests\".\"dismissed_at\" is null or \"venue_requests\".\"status\"::text in ('rejected', 'released', 'withdrawn')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venue_unavailability": {
+      "name": "venue_unavailability",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lifted_at": {
+          "name": "lifted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lifted_by_id": {
+          "name": "lifted_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "venue_unavailability_period_idx": {
+          "name": "venue_unavailability_period_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ends_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"venue_unavailability\".\"lifted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "venue_unavailability_venue_id_venues_id_fk": {
+          "name": "venue_unavailability_venue_id_venues_id_fk",
+          "tableFrom": "venue_unavailability",
+          "tableTo": "venues",
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "venue_unavailability_created_by_id_user_id_fk": {
+          "name": "venue_unavailability_created_by_id_user_id_fk",
+          "tableFrom": "venue_unavailability",
+          "tableTo": "user",
+          "columnsFrom": ["created_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "venue_unavailability_lifted_by_id_user_id_fk": {
+          "name": "venue_unavailability_lifted_by_id_user_id_fk",
+          "tableFrom": "venue_unavailability",
+          "tableTo": "user",
+          "columnsFrom": ["lifted_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "venue_unavailability_ends_after_starts": {
+          "name": "venue_unavailability_ends_after_starts",
+          "value": "\"venue_unavailability\".\"ends_at\" is null or \"venue_unavailability\".\"ends_at\" > \"venue_unavailability\".\"starts_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venues": {
+      "name": "venues",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_capacity": {
+          "name": "max_capacity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "setup_minutes": {
+          "name": "setup_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "turnaround_minutes": {
+          "name": "turnaround_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "facilities": {
+          "name": "facilities",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "accessibility_features": {
+          "name": "accessibility_features",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "supported_layouts": {
+          "name": "supported_layouts",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "operating_hours": {
+          "name": "operating_hours",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "venues_name_unique": {
+          "name": "venues_name_unique",
+          "nullsNotDistinct": false,
+          "columns": ["name"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "venues_max_capacity_positive": {
+          "name": "venues_max_capacity_positive",
+          "value": "\"venues\".\"max_capacity\" > 0"
+        },
+        "venues_setup_minutes_nonnegative": {
+          "name": "venues_setup_minutes_nonnegative",
+          "value": "\"venues\".\"setup_minutes\" >= 0"
+        },
+        "venues_turnaround_minutes_nonnegative": {
+          "name": "venues_turnaround_minutes_nonnegative",
+          "value": "\"venues\".\"turnaround_minutes\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.vip_registration_changes": {
+      "name": "vip_registration_changes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attendee_id": {
+          "name": "attendee_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change": {
+          "name": "change",
+          "type": "vip_registration_change",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_at": {
+          "name": "changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "vip_registration_changes_event_id_idx": {
+          "name": "vip_registration_changes_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "vip_registration_changes_event_id_event_requests_id_fk": {
+          "name": "vip_registration_changes_event_id_event_requests_id_fk",
+          "tableFrom": "vip_registration_changes",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.account": {
+      "name": "account",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "account_userId_idx": {
+          "name": "account_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "account_user_id_user_id_fk": {
+          "name": "account_user_id_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.session": {
+      "name": "session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "session_userId_idx": {
+          "name": "session_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "session_user_id_user_id_fk": {
+          "name": "session_user_id_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "session_token_unique": {
+          "name": "session_token_unique",
+          "nullsNotDistinct": false,
+          "columns": ["token"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user": {
+      "name": "user",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'attendee'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_email_unique": {
+          "name": "user_email_unique",
+          "nullsNotDistinct": false,
+          "columns": ["email"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.verification": {
+      "name": "verification",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "verification_identifier_idx": {
+          "name": "verification_identifier_idx",
+          "columns": [
+            {
+              "expression": "identifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.equipment_arrangement_status": {
+      "name": "equipment_arrangement_status",
+      "schema": "public",
+      "values": ["requested", "reserved", "not_required", "unavailable"]
+    },
+    "public.event_cancellation_outcome": {
+      "name": "event_cancellation_outcome",
+      "schema": "public",
+      "values": ["cancelled", "declined"]
+    },
+    "public.event_change_outcome": {
+      "name": "event_change_outcome",
+      "schema": "public",
+      "values": ["applied", "declined"]
+    },
+    "public.event_handover_decision": {
+      "name": "event_handover_decision",
+      "schema": "public",
+      "values": ["accepted", "declined"]
+    },
+    "public.event_registration_status": {
+      "name": "event_registration_status",
+      "schema": "public",
+      "values": ["registered", "withdrawn", "waitlisted"]
+    },
+    "public.event_request_status": {
+      "name": "event_request_status",
+      "schema": "public",
+      "values": [
+        "draft",
+        "submitted",
+        "under_review",
+        "approved",
+        "rejected",
+        "awaiting_organiser",
+        "planning",
+        "confirmed",
+        "completed",
+        "cancelled"
+      ]
+    },
+    "public.notification_kind": {
+      "name": "notification_kind",
+      "schema": "public",
+      "values": [
+        "venue_booking_requested",
+        "venue_booking_approved",
+        "venue_booking_rejected",
+        "venue_booking_changed",
+        "clarification_requested",
+        "clarification_replied",
+        "event_change_requested",
+        "handover_requested",
+        "handover_accepted",
+        "handover_declined",
+        "event_decided",
+        "event_confirmed",
+        "equipment_requested",
+        "equipment_arrangements_completed",
+        "equipment_unavailable",
+        "equipment_released",
+        "event_registered",
+        "registration_threshold_reached",
+        "event_cancellation_requested",
+        "event_cancelled",
+        "event_cancellation_declined",
+        "registration_place_freed",
+        "registration_opened",
+        "registration_closed",
+        "event_significant_change",
+        "event_change_processed",
+        "venue_block_changed",
+        "venue_booking_released_by_coordinator",
+        "venue_hold_expiry_changed",
+        "venue_buffer_conflict",
+        "event_submitted",
+        "safety_review_decided",
+        "venue_hold_requested",
+        "venue_hold_placed",
+        "venue_hold_declined",
+        "venue_hold_expiring",
+        "venue_hold_expired",
+        "coordinator_assigned",
+        "safety_review_requested",
+        "event_safety_reconfirmation_required",
+        "registration_place_available"
+      ]
+    },
+    "public.safety_review_state": {
+      "name": "safety_review_state",
+      "schema": "public",
+      "values": ["pending", "approved", "rejected", "changes_requested"]
+    },
+    "public.venue_hold_status": {
+      "name": "venue_hold_status",
+      "schema": "public",
+      "values": ["held", "released", "expired", "requested", "declined"]
+    },
+    "public.venue_request_status": {
+      "name": "venue_request_status",
+      "schema": "public",
+      "values": ["pending", "withdrawn", "approved", "rejected", "released"]
+    },
+    "public.vip_registration_change": {
+      "name": "vip_registration_change",
+      "schema": "public",
+      "values": ["added", "removed"]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

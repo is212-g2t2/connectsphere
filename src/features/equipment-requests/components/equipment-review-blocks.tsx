@@ -194,63 +194,65 @@ export function AvailabilityCheck({
           setVenueRequestId(value);
         }}
       />
-      <form.Field name="equipmentTypeId">
-        {field => (
-          <Field data-invalid={field.state.meta.errors.length > 0}>
-            <FieldLabel htmlFor="availability-type">Equipment type</FieldLabel>
-            <Select
-              value={field.state.value || null}
-              onValueChange={value => {
-                resetOutcome();
-                field.handleChange(value ?? "");
-              }}
-            >
-              <SelectTrigger
-                id="availability-type"
-                className="w-full"
-                aria-invalid={field.state.meta.errors.length > 0}
-                onBlur={field.handleBlur}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <form.Field name="equipmentTypeId">
+          {field => (
+            <Field data-invalid={field.state.meta.errors.length > 0}>
+              <FieldLabel htmlFor="availability-type">Equipment type</FieldLabel>
+              <Select
+                value={field.state.value || null}
+                onValueChange={value => {
+                  resetOutcome();
+                  field.handleChange(value ?? "");
+                }}
               >
-                <SelectValue placeholder="Choose an equipment type">
-                  {field.state.value === ""
-                    ? null
-                    : (value: string) => equipmentTypes.find(t => String(t.id) === value)?.name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {equipmentTypes.map(type => (
-                  <SelectItem key={type.id} value={String(type.id)}>
-                    {type.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldError errors={field.state.meta.errors} />
-          </Field>
-        )}
-      </form.Field>
+                <SelectTrigger
+                  id="availability-type"
+                  className="w-full"
+                  aria-invalid={field.state.meta.errors.length > 0}
+                  onBlur={field.handleBlur}
+                >
+                  <SelectValue placeholder="Choose an equipment type">
+                    {field.state.value === ""
+                      ? null
+                      : (value: string) => equipmentTypes.find(t => String(t.id) === value)?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {equipmentTypes.map(type => (
+                    <SelectItem key={type.id} value={String(type.id)}>
+                      {type.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError errors={field.state.meta.errors} />
+            </Field>
+          )}
+        </form.Field>
 
-      <form.Field name="requestedQuantity">
-        {field => (
-          <Field data-invalid={field.state.meta.errors.length > 0}>
-            <FieldLabel htmlFor="availability-quantity">Quantity (optional)</FieldLabel>
-            <Input
-              id="availability-quantity"
-              type="number"
-              min={1}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={e => {
-                resetOutcome();
-                field.handleChange(e.target.value);
-              }}
-              aria-invalid={field.state.meta.errors.length > 0}
-            />
-            <FieldDescription>Leave blank to see total free.</FieldDescription>
-            <FieldError errors={field.state.meta.errors} />
-          </Field>
-        )}
-      </form.Field>
+        <form.Field name="requestedQuantity">
+          {field => (
+            <Field data-invalid={field.state.meta.errors.length > 0}>
+              <FieldLabel htmlFor="availability-quantity">Quantity (optional)</FieldLabel>
+              <Input
+                id="availability-quantity"
+                type="number"
+                min={1}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={e => {
+                  resetOutcome();
+                  field.handleChange(e.target.value);
+                }}
+                aria-invalid={field.state.meta.errors.length > 0}
+              />
+              <FieldDescription>Leave blank to see total free.</FieldDescription>
+              <FieldError errors={field.state.meta.errors} />
+            </Field>
+          )}
+        </form.Field>
+      </div>
 
       <form.Subscribe selector={state => state.errorMap.onSubmit}>
         {onSubmitError =>
@@ -284,13 +286,11 @@ function ArrangementLine({
   line: EquipmentLineProjection;
   bookings: EquipmentBookingOption[];
 }) {
-  const canReserve =
-    line.arrangeable !== false &&
-    (line.arrangementStatus === "requested" || line.arrangementStatus === "reserved");
+  const canReserve = line.arrangeable !== false && line.arrangementStatus === "requested";
   // PTR-42: only units already held can be given back.
   const canRelease = canGiveBackUnits(line);
   return (
-    <li aria-label={line.item} className="rounded-lg border border-border p-4">
+    <li aria-label={line.item} className="rounded-lg border border-border bg-card p-4">
       <h3 className="font-medium">
         {line.item} <span className="text-muted-foreground">× {line.quantity}</span>
         {typeof line.reservedQuantity === "number" && (
@@ -396,7 +396,7 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
   return (
     <form
       noValidate
-      className="mt-4 space-y-3"
+      className="mt-4 grid gap-3 md:grid-cols-5"
       onSubmit={e => {
         e.preventDefault();
         if (form.state.isSubmitting) return;
@@ -405,7 +405,7 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
     >
       <form.Field name="arrangementStatus">
         {field => (
-          <Field>
+          <Field className="md:col-span-2">
             <FieldLabel htmlFor={fieldId("state")}>
               {`Arrangement state for ${line.item}`}
             </FieldLabel>
@@ -439,34 +439,12 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
         )}
       </form.Field>
 
-      <form.Subscribe selector={state => state.values.arrangementStatus}>
-        {status =>
-          status === "unavailable" && (
-            <form.Field name="unavailableReason">
-              {field => (
-                <Field data-invalid={field.state.meta.errors.length > 0}>
-                  <FieldLabel htmlFor={fieldId("reason")}>
-                    {`Reason unavailable for ${line.item} (required)`}
-                  </FieldLabel>
-                  <Textarea
-                    id={fieldId("reason")}
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={e => field.handleChange(e.target.value)}
-                    aria-invalid={field.state.meta.errors.length > 0}
-                    rows={2}
-                  />
-                  <FieldError errors={field.state.meta.errors} />
-                </Field>
-              )}
-            </form.Field>
-          )
-        }
-      </form.Subscribe>
-
       <form.Field name="arrangementNotes">
         {field => (
-          <Field data-invalid={field.state.meta.errors.length > 0}>
+          <Field
+            data-invalid={field.state.meta.errors.length > 0}
+            className="md:col-span-3 md:col-start-3 md:row-start-1"
+          >
             <FieldLabel htmlFor={fieldId("notes")}>
               {`Technical Support notes for ${line.item}`}
             </FieldLabel>
@@ -484,19 +462,53 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
         )}
       </form.Field>
 
-      <form.Subscribe selector={state => state.errorMap.onSubmit}>
-        {onSubmitError =>
-          typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+      <form.Subscribe selector={state => state.values.arrangementStatus}>
+        {status =>
+          status === "unavailable" && (
+            <div className="md:col-span-5">
+              <form.Field name="unavailableReason">
+                {field => (
+                  <Field data-invalid={field.state.meta.errors.length > 0}>
+                    <FieldLabel htmlFor={fieldId("reason")}>
+                      {`Reason unavailable for ${line.item} (required)`}
+                    </FieldLabel>
+                    <Textarea
+                      id={fieldId("reason")}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={e => field.handleChange(e.target.value)}
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      rows={2}
+                    />
+                    <FieldError errors={field.state.meta.errors} />
+                  </Field>
+                )}
+              </form.Field>
+            </div>
+          )
         }
       </form.Subscribe>
 
-      <form.Subscribe selector={state => state.isSubmitting}>
-        {isSubmitting => (
-          <Button type="submit" size="sm" disabled={isSubmitting} aria-label={`Save ${line.item}`}>
-            {isSubmitting ? "Saving…" : "Save"}
-          </Button>
-        )}
-      </form.Subscribe>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:col-span-5">
+        <form.Subscribe selector={state => state.errorMap.onSubmit}>
+          {onSubmitError =>
+            typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+          }
+        </form.Subscribe>
+
+        <form.Subscribe selector={state => state.isSubmitting}>
+          {isSubmitting => (
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSubmitting}
+              aria-label={`Save ${line.item}`}
+            >
+              {isSubmitting ? "Saving…" : "Save"}
+            </Button>
+          )}
+        </form.Subscribe>
+      </div>
     </form>
   );
 }

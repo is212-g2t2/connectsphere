@@ -43,8 +43,9 @@ describe("eventSections", () => {
       event: projection("organiser", { name: "Open Day", expectedAttendance: 60 }),
       organiserRequest: { status: "confirmed" },
     } as unknown as EventPageData;
+    // The venue block hides while the event carries no requests: the event information
+    // section below already records the requirements.
     expect(ids(data)).toEqual([
-      "venue",
       "registrations",
       "equipment",
       "decision",
@@ -306,8 +307,8 @@ describe("eventSections", () => {
   it("lists the technical support sections in order", () => {
     expect(ids(page("technical_support", { name: "Open Day" }))).toEqual([
       "lines",
-      "arrangements",
       "availability",
+      "arrangements",
     ]);
   });
 

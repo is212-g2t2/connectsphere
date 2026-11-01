@@ -343,7 +343,7 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
       expect(await screen.findByRole("heading", { name: "Request a hold" })).toBeTruthy();
       expect(screen.getByText(/protects nothing until Venue Staff place it/)).toBeTruthy();
 
@@ -377,7 +377,7 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
       await user.click(screen.getByRole("button", { name: "Send request" }));
 
       await waitFor(() => {
@@ -396,7 +396,7 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
 
       expect(
         screen.getByText("You have no events that can take a venue hold request.")
@@ -417,13 +417,82 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
       await user.click(screen.getByRole("button", { name: "Send request" }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toBeTruthy();
         expect(mockRequestHold).not.toHaveBeenCalled();
       });
+    });
+
+    it("names the window the dialog uses", async () => {
+      const user = userEvent.setup();
+      render(
+        <RequestVenueHoldDialog
+          venueId={7}
+          venueName="Great Hall"
+          defaultDate="2026-10-05"
+          defaultStartTime="09:00"
+          defaultEndTime="12:00"
+          coordinatorEvents={[{ id: 101, name: "Orientation Camp" }]}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
+
+      expect(await screen.findByText("Hold window: 5 Oct 2026, 09:00 – 12:00.")).toBeTruthy();
+    });
+
+    it("warns and refuses the submit on a closed start day", async () => {
+      const user = userEvent.setup();
+      render(
+        <RequestVenueHoldDialog
+          venueId={7}
+          venueName="Great Hall"
+          defaultDate="2026-10-11"
+          operatingHours={DEFAULT_OPERATING_HOURS}
+          coordinatorEvents={[{ id: 101, name: "Orientation Camp" }]}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
+
+      expect(
+        await screen.findByText("Great Hall is closed on 11 Oct 2026. Choose an open day.")
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send request" })).toHaveProperty("disabled", true);
+      expect(mockRequestHold).not.toHaveBeenCalled();
+    });
+
+    it("lifts the closed-day warning when the date moves to an open day", async () => {
+      const user = userEvent.setup();
+      render(
+        <RequestVenueHoldDialog
+          venueId={7}
+          venueName="Great Hall"
+          defaultDate="2026-10-11"
+          operatingHours={DEFAULT_OPERATING_HOURS}
+          coordinatorEvents={[{ id: 101, name: "Orientation Camp" }]}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Request a hold…" }));
+      expect(
+        await screen.findByText("Great Hall is closed on 11 Oct 2026. Choose an open day.")
+      ).toBeTruthy();
+
+      await user.clear(screen.getByLabelText("Date"));
+      await user.type(screen.getByLabelText("Date"), "2026-10-12");
+      await waitFor(() =>
+        expect(
+          screen.queryByText("Great Hall is closed on 11 Oct 2026. Choose an open day.")
+        ).toBeNull()
+      );
+      expect(screen.getByRole("button", { name: "Send request" })).toHaveProperty(
+        "disabled",
+        false
+      );
     });
   });
 
@@ -439,8 +508,8 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      // Header should have Request hold dialog button
-      expect(screen.getByRole("button", { name: "Request hold" })).toBeTruthy();
+      // Header should have the hold dialog button
+      expect(screen.getByRole("button", { name: "Request a hold…" })).toBeTruthy();
 
       // Available period should have Request this slot button
       expect(screen.getByRole("button", { name: "Request this slot" })).toBeTruthy();
@@ -519,7 +588,7 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      expect(screen.queryByRole("button", { name: "Request hold" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Request a hold…" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Request this slot" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Release tentative hold" })).toBeNull();
       expect(

@@ -11,6 +11,7 @@ const {
   mockListCoordinators,
   mockGetPendingVenueRequestsForEvent,
   mockListVenueOptions,
+  mockListRoomLayouts,
   mockListEquipmentTypes,
   mockWarn,
   mockInfo,
@@ -23,6 +24,7 @@ const {
   mockListCoordinators: vi.fn<() => Promise<unknown[]>>(),
   mockGetPendingVenueRequestsForEvent: vi.fn<() => Promise<unknown>>(),
   mockListVenueOptions: vi.fn<() => Promise<unknown[]>>(),
+  mockListRoomLayouts: vi.fn<() => Promise<unknown[]>>(),
   mockListEquipmentTypes: vi.fn<() => Promise<unknown>>(),
   mockWarn: vi.fn<(...args: unknown[]) => void>(),
   mockInfo: vi.fn<(...args: unknown[]) => void>(),
@@ -45,6 +47,7 @@ vi.mock("#/features/venue-requests/server-fns", () => ({
 }));
 vi.mock("#/features/venues/server-fns", () => ({
   listVenueOptions: mockListVenueOptions,
+  listRoomLayouts: mockListRoomLayouts,
 }));
 vi.mock("#/features/equipment-requests/server-fns", () => ({
   listEquipmentTypes: mockListEquipmentTypes,
@@ -87,12 +90,14 @@ beforeEach(() => {
     mockListCoordinators,
     mockGetPendingVenueRequestsForEvent,
     mockListVenueOptions,
+    mockListRoomLayouts,
     mockListEquipmentTypes,
   ]) {
     mock.mockReset();
   }
   mockWarn.mockReset();
   mockInfo.mockReset();
+  mockListRoomLayouts.mockResolvedValue([]);
 });
 
 describe("loadEventPageData", () => {
@@ -129,9 +134,11 @@ describe("loadEventPageData", () => {
     const event = projection("organiser", { name: "Open Day", status: "approved" });
     const request = { id: 7, eventName: "Open Day" };
     const attendees = [{ attendeeId: "a-1" }];
+    const layouts = [{ key: "theatre", label: "Theatre" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetEventRequest.mockResolvedValue({ request });
     mockListEventRegistrations.mockResolvedValue(attendees);
+    mockListRoomLayouts.mockResolvedValue(layouts);
 
     const data = await loadEventPageData(7, "event_organiser");
 
@@ -140,9 +147,11 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: request,
       attendees,
+      layouts,
     });
     expect(mockGetEventRequest).toHaveBeenCalledWith({ data: { id: 7 } });
     expect(mockListEventRegistrations).toHaveBeenCalledWith({ data: { id: 7 } });
+    expect(mockListRoomLayouts).toHaveBeenCalledOnce();
   });
 
   it("skips the registration fetch for an organiser event with no record", async () => {
@@ -158,6 +167,7 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: request,
       attendees: undefined,
+      layouts: [],
     });
     expect(mockListEventRegistrations).not.toHaveBeenCalled();
   });
@@ -176,6 +186,7 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: null,
       attendees,
+      layouts: [],
     });
   });
 
@@ -193,6 +204,25 @@ describe("loadEventPageData", () => {
       event,
       organiserRequest: request,
       attendees: null,
+      layouts: [],
+    });
+  });
+
+  it("leaves layouts unset when the organiser layout read fails", async () => {
+    const event = projection("organiser", { name: "Open Day", status: "approved" });
+    const request = { id: 7, eventName: "Open Day" };
+    mockListEvents.mockResolvedValue([event]);
+    mockGetEventRequest.mockResolvedValue({ request });
+    mockListEventRegistrations.mockResolvedValue([]);
+    mockListRoomLayouts.mockRejectedValue(new Error("layout store down"));
+
+    const data = await loadEventPageData(7, "event_organiser");
+
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      organiserRequest: request,
+      attendees: [],
     });
   });
 
@@ -200,9 +230,11 @@ describe("loadEventPageData", () => {
     const event = projection("coordinator", { name: "Open Day", status: "confirmed" });
     const request = { id: 7, status: "confirmed" };
     const attendees = [{ attendeeId: "a-1" }];
+    const layouts = [{ key: "theatre", label: "Theatre" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetCoordinationRequest.mockResolvedValue(request);
     mockListEventRegistrations.mockResolvedValue(attendees);
+    mockListRoomLayouts.mockResolvedValue(layouts);
 
     const data = await loadEventPageData(7, "event_coordinator");
 
@@ -211,6 +243,7 @@ describe("loadEventPageData", () => {
       event,
       coordination: { request },
       attendees,
+      layouts,
     });
     expect(mockGetCoordinationRequest).toHaveBeenCalledWith({ data: { id: 7 } });
     // PTR-145: the Coordinator no longer moves an assignment, so no candidate list is read.
@@ -230,6 +263,7 @@ describe("loadEventPageData", () => {
       event,
       coordination: { request },
       attendees: undefined,
+      layouts: [],
     });
     expect(mockListEventRegistrations).not.toHaveBeenCalled();
   });
@@ -248,6 +282,7 @@ describe("loadEventPageData", () => {
       event,
       coordination: null,
       attendees,
+      layouts: [],
     });
   });
 
@@ -261,9 +296,11 @@ describe("loadEventPageData", () => {
     });
     const requests = [{ id: "vr-1" }, { id: "vr-3" }];
     const venues = [{ id: 3, name: "Hall A" }];
+    const layouts = [{ key: "theatre", label: "Theatre" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequestsForEvent.mockResolvedValue(requests);
     mockListVenueOptions.mockResolvedValue(venues);
+    mockListRoomLayouts.mockResolvedValue(layouts);
 
     const data = await loadEventPageData(7, "venue_staff");
 
@@ -271,10 +308,27 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       venueDecisions: { requests, venues },
+      layouts,
     });
     expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledOnce();
     expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledWith({ data: { eventId: 7 } });
     expect(mockListVenueOptions).toHaveBeenCalledOnce();
+  });
+
+  it("leaves layouts unset when the layout read fails, and still loads the decisions", async () => {
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
+    mockListEvents.mockResolvedValue([event]);
+    mockGetPendingVenueRequestsForEvent.mockResolvedValue([{ id: "vr-1" }]);
+    mockListVenueOptions.mockResolvedValue([]);
+    mockListRoomLayouts.mockRejectedValue(new Error("layout store down"));
+
+    const data = await loadEventPageData(7, "venue_staff");
+
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
+    });
   });
 
   it("offers no venue options to staff without the decide permission", async () => {
@@ -290,6 +344,7 @@ describe("loadEventPageData", () => {
       venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
     });
     expect(mockListVenueOptions).not.toHaveBeenCalled();
+    expect(mockListRoomLayouts).not.toHaveBeenCalled();
   });
 
   it("skips the decision fetch once no request is pending", async () => {
@@ -329,6 +384,7 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       venueDecisions: { requests: [], venues: [] },
+      layouts: [],
     });
     expect(mockWarn).not.toHaveBeenCalled();
   });
@@ -341,7 +397,7 @@ describe("loadEventPageData", () => {
 
     const data = await loadEventPageData(7, "venue_staff");
 
-    expect(data).toEqual({ kind: "event", event });
+    expect(data).toEqual({ kind: "event", event, layouts: [] });
     expect(mockWarn).toHaveBeenCalledOnce();
   });
 

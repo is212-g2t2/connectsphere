@@ -76,7 +76,21 @@ describe("EventDetailPage", () => {
         data={
           {
             kind: "event",
-            event: projection("organiser", { expectedAttendance: 60 }),
+            event: projection("organiser", {
+              expectedAttendance: 60,
+              confirmation: {
+                confirmedAt: "2026-09-28T09:41:00.000Z",
+                confirmedByName: "Jonas Weber",
+                venue: {
+                  name: "Harbor Hall",
+                  location: "12 Dock Street",
+                  date: "2026-11-04",
+                  endDate: "2026-11-04",
+                  startTime: "10:00",
+                  endTime: "16:00",
+                },
+              },
+            }),
             organiserRequest: {
               id: 1042,
               status: "confirmed",
@@ -108,7 +122,7 @@ describe("EventDetailPage", () => {
       />
     );
 
-    expect(screen.getByText("organiser access")).toBeTruthy();
+    expect(screen.queryByText("organiser access")).toBeNull();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ConnectSphere Open Day" })).toBeTruthy();
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
@@ -259,7 +273,7 @@ describe("EventDetailPage", () => {
       />
     );
 
-    expect(screen.getByText("venue staff access")).toBeTruthy();
+    expect(screen.queryByText("venue staff access")).toBeNull();
     expect(screen.getByRole("heading", { name: "Riverside Loft" })).toBeTruthy();
     await screen.findByRole("heading", { name: /Booking request details/ });
     expect(screen.getByRole("heading", { name: "Record a decision" })).toBeTruthy();
@@ -275,7 +289,7 @@ describe("EventDetailPage", () => {
       />
     );
 
-    expect(screen.getByText("technical support access")).toBeTruthy();
+    expect(screen.queryByText("technical support access")).toBeNull();
     expect(screen.getByRole("heading", { name: "ConnectSphere Open Day" })).toBeTruthy();
     await screen.findByRole("region", { name: "Equipment lines" });
     expect(screen.queryByText("Harbor Hall")).toBeNull();
@@ -360,6 +374,6 @@ describe("EventDetailPage", () => {
     // PTR-145: the Lead's assignment form is the queue detail's one action, and it sits in the
     // main column rather than on a rail.
     expect(container.querySelector("main #assignment")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Assign Coordinator" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Assign coordinator" })).toBeTruthy();
   });
 });

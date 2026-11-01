@@ -1,6 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import { IconAction } from "#/components/ui/icon-action";
 import { Card, CardContent } from "#/components/ui/card";
 import {
   Field,
@@ -39,7 +41,7 @@ import { VenueRequestStatusBadge } from "#/features/venue-requests/components/ve
 import {
   SESSION_REQUIREMENT_INPUTS,
   VENUE_REQUEST_STATUS_LABELS,
-  VenueRequestInput,
+  createVenueRequestInput,
   formIssues,
   formatSessionSummary,
   sessionRequirementFormValues,
@@ -50,6 +52,7 @@ import type {
   VenueRequestPrefill,
   VenueRequestStatus,
 } from "#/features/venue-requests/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type {
   VenueRequestContext,
@@ -190,16 +193,14 @@ function WithdrawRequestButton({
     <AlertDialog>
       <AlertDialogTrigger
         render={
-          <Button
-            variant={destructive ? "destructive" : "outline"}
-            size="sm"
+          <IconAction
+            label={`Withdraw request for ${period}`}
+            icon={<Undo2 />}
+            tone={destructive ? "danger" : undefined}
             className="w-fit"
-            aria-label={`Withdraw request for ${period}`}
           />
         }
-      >
-        Withdraw request
-      </AlertDialogTrigger>
+      />
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogTitle>Withdraw request</AlertDialogTitle>
@@ -298,9 +299,17 @@ function rowOutcomeReason(row: VenueRequestContextRow): string | null {
  * and layout tell two sessions at this venue apart (PTR-138 AC1). A pending row shows its conflict
  * flag, as the event card does. A rejected or released row shows why it ended (PTR-139).
  */
-function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venueName: string }) {
+function VenueRequestRow({
+  row,
+  venueName,
+  layouts,
+}: {
+  row: VenueRequestContextRow;
+  venueName: string;
+  layouts: readonly Pick<RoomLayout, "key" | "label">[];
+}) {
   const period = formatProposedWindow({ start: row.startsAt, end: row.endsAt });
-  const session = formatSessionSummary(row.requirements);
+  const session = formatSessionSummary(row.requirements, layouts);
   const outcome = rowOutcomeReason(row);
   return (
     <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -332,11 +341,14 @@ export function VenueRequestPanel({
   venueId,
   venueName,
   context,
+  layouts,
   prefill = null,
 }: {
   venueId: number;
   venueName: string;
   context: VenueRequestContext;
+  /** The maintained list, from the route loader. The form refuses a typo against it; rows show it. */
+  layouts: readonly Pick<RoomLayout, "key" | "label">[];
   prefill?: VenueRequestPrefill | null;
 }) {
   const router = useRouter();
@@ -356,7 +368,7 @@ export function VenueRequestPanel({
     // `VenueRequestInput` uses the server's rules. Mark each field with its first issue.
     validators: {
       onSubmit: ({ value }) =>
-        formIssues(VenueRequestInput, toRequestInput(event.id, venueId, value)),
+        formIssues(createVenueRequestInput(layouts), toRequestInput(event.id, venueId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -483,7 +495,7 @@ export function VenueRequestPanel({
               </p>
               <ul aria-labelledby="venue-request-heading" className="mt-3 divide-y divide-border">
                 {requests.map(row => (
-                  <VenueRequestRow key={row.id} row={row} venueName={venueName} />
+                  <VenueRequestRow key={row.id} row={row} venueName={venueName} layouts={layouts} />
                 ))}
               </ul>
             </>
@@ -526,7 +538,7 @@ export function VenueRequestPanel({
                   <form.Field name="date">
                     {field => (
                       <Field data-invalid={field.state.meta.errors.length > 0}>
-                        <FieldLabel htmlFor="venue-request-date">Date (required)</FieldLabel>
+                        <FieldLabel htmlFor="venue-request-date">Date</FieldLabel>
                         <Input
                           id="venue-request-date"
                           ref={element => {
@@ -546,7 +558,7 @@ export function VenueRequestPanel({
                   <form.Field name="startTime">
                     {field => (
                       <Field data-invalid={field.state.meta.errors.length > 0}>
-                        <FieldLabel htmlFor="venue-request-start">Start time (required)</FieldLabel>
+                        <FieldLabel htmlFor="venue-request-start">Start time</FieldLabel>
                         <Input
                           id="venue-request-start"
                           ref={element => {
@@ -566,7 +578,7 @@ export function VenueRequestPanel({
                   <form.Field name="endTime">
                     {field => (
                       <Field data-invalid={field.state.meta.errors.length > 0}>
-                        <FieldLabel htmlFor="venue-request-end">End time (required)</FieldLabel>
+                        <FieldLabel htmlFor="venue-request-end">End time</FieldLabel>
                         <Input
                           id="venue-request-end"
                           ref={element => {
@@ -637,6 +649,7 @@ export function VenueRequestPanel({
                   <SessionRequirementFields
                     form={form}
                     idPrefix="venue-request"
+                    layouts={layouts}
                     inputRef={(name, element) => {
                       inputRefs.current[name] = element;
                     }}

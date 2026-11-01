@@ -1,22 +1,27 @@
 import { cn } from "#/lib/utils";
 import { Button } from "#/components/ui/button";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field";
-import { Input } from "#/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select";
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "#/components/ui/field";
+import { Input } from "#/components/ui/input";
+import { PasswordInput } from "#/features/auth/components/password-input";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "#/lib/auth-client";
 import { PasswordSchema } from "#/features/auth/schema/password";
-import { DEFAULT_ROLE, SelfAssignableRoleSchema } from "#/features/auth/schema/role";
+import { SelfAssignableRoleSchema } from "#/features/auth/schema/role";
 import { useState } from "react";
 
+/**
+ * The role starts empty so the visitor must choose. The server keeps its own `DEFAULT_ROLE` for
+ * API sign-ups that post no role; the form never coerces.
+ */
 const schema = z
   .object({
     name: z
@@ -29,18 +34,27 @@ const schema = z
     // Deliberately unconstrained on its own: the policy belongs to `password`, and running
     // PasswordSchema here too would bury the mismatch error under duplicate policy errors.
     confirmPassword: z.string(),
-    role: SelfAssignableRoleSchema,
+    role: z
+      .union([z.literal(""), SelfAssignableRoleSchema])
+      .refine(value => value !== "", { error: "Choose a role" }),
   })
   .refine(value => value.password === value.confirmPassword, {
     path: ["confirmPassword"],
     error: "Passwords do not match",
   });
 
-/** Also feeds the Select trigger, which resolves a selected value to its label through `items`. */
-const ROLE_LABELS: Record<string, string> = {
-  attendee: "Attendee",
-  event_organiser: "Event Organiser",
-};
+const ROLE_OPTIONS = [
+  {
+    value: "attendee",
+    label: "Attendee",
+    description: "Discover events and register to attend them.",
+  },
+  {
+    value: "event_organiser",
+    label: "Event organiser",
+    description: "Request events and book venues for them.",
+  },
+] as const;
 
 export function SignupForm({ className, ...props }: React.ComponentProps<"div">) {
   const navigate = useNavigate();
@@ -48,7 +62,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
   const [verifyEmail, setVerifyEmail] = useState<string | null>(null);
 
   const form = useForm({
-    defaultValues: { name: "", email: "", password: "", confirmPassword: "", role: DEFAULT_ROLE },
+    defaultValues: { name: "", email: "", password: "", confirmPassword: "", role: "" },
     validators: { onSubmit: schema },
     onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.signUp.email({
@@ -78,22 +92,12 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
 
   if (verifyEmail) {
     return (
-      <div className={cn("flex flex-col gap-5", className)} {...props}>
-        <FieldGroup>
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            <h1 className="display-h1">Check your email</h1>
-            <FieldDescription>
-              We sent a verification link to <strong>{verifyEmail}</strong>. Please verify your
-              email address to complete your registration.
-            </FieldDescription>
-          </div>
-          <Field>
-            <Button type="button" onClick={() => void navigate({ to: "/dashboard" })}>
-              Continue
-            </Button>
-          </Field>
-        </FieldGroup>
-      </div>
+      <VerifyEmailPanel
+        email={verifyEmail}
+        className={className}
+        onContinue={() => void navigate({ to: "/dashboard" })}
+        {...props}
+      />
     );
   }
 
@@ -156,19 +160,16 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
             {field => (
               <Field>
                 <FieldLabel htmlFor="password">Password</FieldLabel>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   autoComplete="new-password"
+                  showRules
                   value={field.state.value}
                   onChange={e => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
                   aria-invalid={field.state.meta.errors.length > 0}
                 />
                 <FieldError errors={field.state.meta.errors} />
-                <FieldDescription>
-                  At least 8 characters, including a number and a symbol.
-                </FieldDescription>
               </Field>
             )}
           </form.Field>
@@ -177,9 +178,8 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
             {field => (
               <Field>
                 <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>
-                <Input
+                <PasswordInput
                   id="confirmPassword"
-                  type="password"
                   autoComplete="new-password"
                   value={field.state.value}
                   onChange={e => field.handleChange(e.target.value)}
@@ -194,28 +194,37 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
           <form.Field name="role">
             {field => (
               <Field>
-                <FieldLabel htmlFor="role">Role</FieldLabel>
-                <Select
-                  items={ROLE_LABELS}
-                  value={field.state.value}
-                  onValueChange={value =>
-                    field.handleChange(SelfAssignableRoleSchema.catch(DEFAULT_ROLE).parse(value))
-                  }
-                >
-                  <SelectTrigger
-                    id="role"
-                    className="w-full"
-                    onBlur={field.handleBlur}
-                    aria-invalid={field.state.meta.errors.length > 0}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="attendee">Attendee</SelectItem>
-                    <SelectItem value="event_organiser">Event Organiser</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FieldDescription>Select your account role</FieldDescription>
+                <FieldTitle id="role-label">Role</FieldTitle>
+                <div role="radiogroup" aria-labelledby="role-label" className="flex flex-col gap-2">
+                  {ROLE_OPTIONS.map(option => (
+                    <label
+                      key={option.value}
+                      htmlFor={`role-${option.value}`}
+                      aria-label={option.label}
+                      className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-input px-4 py-3 has-checked:border-ring"
+                    >
+                      <input
+                        id={`role-${option.value}`}
+                        type="radio"
+                        name="role"
+                        value={option.value}
+                        checked={field.state.value === option.value}
+                        onChange={() => field.handleChange(option.value)}
+                        onBlur={field.handleBlur}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="block label">{option.label}</span>
+                        <span className="block body-sm text-muted-foreground">
+                          {option.description}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <FieldDescription>
+                  You cannot change this later. Staff accounts are provisioned by an administrator.
+                </FieldDescription>
                 <FieldError errors={field.state.meta.errors} />
               </Field>
             )}
@@ -231,7 +240,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
           <form.Subscribe selector={s => s.isSubmitting}>
             {isSubmitting => (
               <Field>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting} className="min-h-11 w-full">
                   {isSubmitting ? "Creating account..." : "Create account"}
                 </Button>
               </Field>
@@ -239,6 +248,59 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
           </form.Subscribe>
         </FieldGroup>
       </form>
+    </div>
+  );
+}
+
+/**
+ * Verification is advisory: sign-in works without it. The panel says so, offers a resend, and
+ * continues into the dashboard. It never offers a change of address; no endpoint supports that.
+ */
+function VerifyEmailPanel({
+  email,
+  onContinue,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & { email: string; onContinue: () => void }) {
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+
+  const resend = async () => {
+    setResendState("sending");
+    const { error } = await authClient.sendVerificationEmail({ email });
+    setResendState(error ? "failed" : "sent");
+  };
+
+  return (
+    <div className={cn("flex flex-col gap-5", className)} {...props}>
+      <FieldGroup>
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <h1 className="display-h1">Check your email</h1>
+          <FieldDescription>
+            We sent a verification link to <strong>{email}</strong>. Verification is optional — your
+            account already works — but it keeps your account secure.
+          </FieldDescription>
+        </div>
+        <Field>
+          <Button type="button" onClick={onContinue} className="min-h-11 w-full">
+            Continue
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void resend()}
+            disabled={resendState === "sending"}
+            className="min-h-11 w-full"
+          >
+            {resendState === "sending" ? "Sending..." : "Resend verification email"}
+          </Button>
+          {resendState === "sent" ? (
+            <FieldDescription>Sent — check your inbox.</FieldDescription>
+          ) : null}
+          {resendState === "failed" ? (
+            <FieldError>Could not resend the link. Try again.</FieldError>
+          ) : null}
+        </Field>
+      </FieldGroup>
     </div>
   );
 }

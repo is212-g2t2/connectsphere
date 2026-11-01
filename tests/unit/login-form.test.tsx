@@ -31,7 +31,7 @@ describe("LoginForm component", () => {
 
     expect(screen.getByText("Welcome back")).toBeTruthy();
     expect(screen.getByLabelText(/email/i)).toBeTruthy();
-    expect(screen.getByLabelText(/password/i)).toBeTruthy();
+    expect(screen.getByLabelText(/^password$/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /^sign in$/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /sign up/i })).toBeTruthy();
   });
@@ -52,13 +52,29 @@ describe("LoginForm component", () => {
     });
   });
 
+  it("reveals the password without submitting the form", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    const passwordInput = screen.getByLabelText(/^password$/i);
+    expect(passwordInput.getAttribute("type")).toBe("password");
+
+    const toggle = screen.getByRole("button", { name: /show password/i });
+    expect(toggle.getAttribute("type")).toBe("button");
+
+    await user.click(toggle);
+
+    expect(passwordInput.getAttribute("type")).toBe("text");
+    expect(screen.getByRole("button", { name: /hide password/i })).toBeTruthy();
+  });
+
   it("signs in with email and password", async () => {
     const { authClient } = await import("#/lib/auth-client");
     const user = userEvent.setup();
     render(<LoginForm />);
 
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
-    await user.type(screen.getByLabelText(/password/i), "correct-horse");
+    await user.type(screen.getByLabelText(/^password$/i), "correct-horse");
     await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 
     await waitFor(() => {
@@ -81,7 +97,7 @@ describe("LoginForm component", () => {
     render(<LoginForm />);
 
     await user.type(screen.getByLabelText(/email/i), "unknown@example.com");
-    await user.type(screen.getByLabelText(/password/i), "wrong-password");
+    await user.type(screen.getByLabelText(/^password$/i), "wrong-password");
     await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 
     await waitFor(() => {
@@ -102,7 +118,7 @@ describe("LoginForm component", () => {
     render(<LoginForm />);
 
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
-    await user.type(screen.getByLabelText(/password/i), "wrong-password");
+    await user.type(screen.getByLabelText(/^password$/i), "wrong-password");
     await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 
     await waitFor(() => {

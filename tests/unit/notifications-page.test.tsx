@@ -48,13 +48,15 @@ const summaryOnly: NotificationListItem = {
 };
 
 describe("NotificationsPage", () => {
-  it("shows an empty-state message when no notifications are supplied", () => {
+  it("shows the shared empty state with a next step when no notifications are supplied", () => {
     render(<NotificationsPage notifications={[]} unreadCount={0} />);
 
-    expect(screen.getByText("No notifications yet.")).toBeTruthy();
+    expect(screen.getByText("No notifications yet")).toBeTruthy();
+    expect(screen.getByText("Updates about your events land here, newest first.")).toBeTruthy();
+    const action = screen.getByRole("link", { name: "Your events" });
+    expect(action.getAttribute("href")).toBe("/dashboard");
     // The empty page states the result, so omit the count.
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.queryByRole("link")).toBeNull();
     expect(screen.queryByRole("list")).toBeNull();
   });
 

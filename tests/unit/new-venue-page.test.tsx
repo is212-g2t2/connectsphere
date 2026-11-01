@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NewVenuePage } from "#/features/venues/components/new-venue-page";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
 import type { VenueValues } from "#/features/venues/schema";
 
 const mockNavigate = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
@@ -68,7 +68,7 @@ beforeEach(() => {
 
 describe("NewVenuePage", () => {
   it("renders the back link and heading around the create form", () => {
-    render(<NewVenuePage />);
+    render(<NewVenuePage layouts={INITIAL_ROOM_LAYOUTS} />);
 
     expect(screen.getByRole("link", { name: "Back to venues" }).getAttribute("href")).toBe(
       "/venues"
@@ -80,7 +80,7 @@ describe("NewVenuePage", () => {
   it("saves the form values and hands off to the new venue's detail route", async () => {
     saveVenue.mockResolvedValue({ id: 42 });
     const user = userEvent.setup();
-    render(<NewVenuePage />);
+    render(<NewVenuePage layouts={INITIAL_ROOM_LAYOUTS} />);
 
     await user.click(screen.getByRole("button", { name: "Create venue" }));
     await onSaveCalls[0];
@@ -96,7 +96,7 @@ describe("NewVenuePage", () => {
   it("surfaces a refused save and does not navigate", async () => {
     saveVenue.mockRejectedValue(new Error("That name is already taken"));
     const user = userEvent.setup();
-    render(<NewVenuePage />);
+    render(<NewVenuePage layouts={INITIAL_ROOM_LAYOUTS} />);
 
     await user.click(screen.getByRole("button", { name: "Create venue" }));
 

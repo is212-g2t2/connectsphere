@@ -8,7 +8,9 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
  * The six room layouts a venue may support (PTR-26 criterion 2). The VBOOK-8 story defines this
- * list, and `VenueInput` rejects other values.
+ * list. Venue Staff maintain the list now (PTR-161): `room_layouts` holds the keys and labels,
+ * and `INITIAL_ROOM_LAYOUTS` seeds it. `VenueInput` checks only the key shape; the handler
+ * refuses an unknown key with `LAYOUT_MESSAGE`.
  */
 export const VENUE_LAYOUTS = [
   "theatre",
@@ -18,7 +20,8 @@ export const VENUE_LAYOUTS = [
   "exhibition",
   "other",
 ] as const;
-export type VenueLayout = (typeof VENUE_LAYOUTS)[number];
+/** A layout key. Widened from the six initials so Venue Staff can add keys without a code change. */
+export type VenueLayout = string;
 
 /**
  * Keep layout labels here so the form and read-only view can use the same words. Importing them
@@ -37,7 +40,7 @@ export const SEARCHABLE_EVENT_STATUSES: readonly EventRequestStatus[] = [
   "planning",
 ];
 
-export const LAYOUT_LABELS: Record<VenueLayout, string> = {
+export const LAYOUT_LABELS: Record<string, string> = {
   theatre: "Theatre",
   classroom: "Classroom",
   boardroom: "Boardroom",
@@ -46,22 +49,78 @@ export const LAYOUT_LABELS: Record<VenueLayout, string> = {
   other: "Other",
 };
 
+/** One room layout type: a stable key and its display label. Venues store keys; screens show labels. */
+export interface RoomLayout {
+  key: string;
+  label: string;
+}
+
+/** The six layouts that ship with the change, under their current keys. Seeds `room_layouts`. */
+export const INITIAL_ROOM_LAYOUTS: readonly RoomLayout[] = VENUE_LAYOUTS.map(key => ({
+  key,
+  label: LAYOUT_LABELS[key],
+}));
+
+/** Collapse separators so "Theater-Hall" still holds the phrase "theater hall". */
+function normalisePhrase(value: string): string {
+  return value
+    .toLocaleLowerCase("en")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 /**
- * Layouts named in free text, in `VENUE_LAYOUTS` order. Match whole words: "another layout" names
- * nothing, but "Theatre seating" names theatre. A venue matches if it supports one named layout.
+ * Keys whose label appears in free text as a whole phrase, case-insensitive, in list order.
+ * "Theatre seating" names theatre, but "another layout" names nothing. A venue matches when it
+ * supports one named key. Pass the maintained list; it defaults to the six initials.
  */
-export function parseLayouts(value: string): VenueLayout[] {
-  const words = new Set(value.toLocaleLowerCase("en").split(/[^\p{L}\p{N}]+/u));
-  return VENUE_LAYOUTS.filter(layout => words.has(layout));
+export function parseLayouts(
+  value: string,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[] = INITIAL_ROOM_LAYOUTS
+): string[] {
+  const haystack = ` ${normalisePhrase(value)} `;
+  if (haystack.trim() === "") return [];
+  return layouts
+    .filter(layout => {
+      const needle = normalisePhrase(layout.label);
+      return needle !== "" && haystack.includes(` ${needle} `);
+    })
+    .map(layout => layout.key);
 }
 
 /**
  * Show a layout preference by the labels of the layouts it names, for example "Theatre seating" as
  * "Theatre". Show text that names no layout as stored.
  */
-export function layoutLabel(value: string): string {
-  const named = parseLayouts(value).map(layout => LAYOUT_LABELS[layout]);
+export function layoutLabel(
+  value: string,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[] = INITIAL_ROOM_LAYOUTS
+): string {
+  const byKey = new Map(layouts.map(layout => [layout.key, layout.label]));
+  const named = parseLayouts(value, layouts).map(key => byKey.get(key) ?? key);
   return named.length > 0 ? named.join(", ") : value;
+}
+
+/** Show one stored layout key by its label. Show an unknown key as stored. */
+export function layoutLabelForKey(
+  key: string,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[] = INITIAL_ROOM_LAYOUTS
+): string {
+  return layouts.find(layout => layout.key === key)?.label ?? key;
+}
+
+/**
+ * Refuse free text that names no maintained layout, so a typo cannot fail every venue silently.
+ * Handlers call this with the database list; forms call it with their loader list.
+ */
+export function assertKnownLayoutText(
+  value: string | undefined,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[] = INITIAL_ROOM_LAYOUTS
+): void {
+  if (value !== undefined && value.trim() !== "" && parseLayouts(value, layouts).length === 0) {
+    throw new Error(LAYOUT_MESSAGE);
+  }
 }
 
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -108,6 +167,50 @@ export const TIME_MESSAGE = "Enter opening and closing times as HH:MM";
 export const CLOSES_BEFORE_OPENS_MESSAGE = "Closing time must be later than opening time";
 export const DUPLICATE_NAME_MESSAGE = "A venue with this name already exists";
 export const VENUE_ID_MESSAGE = "Choose a venue";
+
+/** A layout key holds lowercase letters, digits, and single hyphens. Handlers refuse unknown keys. */
+export const ROOM_LAYOUT_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const ROOM_LAYOUT_KEY_MAX_LENGTH = 60;
+export const ROOM_LAYOUT_LABEL_MAX_LENGTH = 60;
+export const ROOM_LAYOUT_LABEL_REQUIRED_MESSAGE = "Enter a label for this layout";
+export const ROOM_LAYOUT_LABEL_TOO_LONG_MESSAGE = `Layout label must be ${ROOM_LAYOUT_LABEL_MAX_LENGTH} characters or fewer`;
+
+const RoomLayoutKey = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(ROOM_LAYOUT_KEY_PATTERN, LAYOUT_MESSAGE)
+  .max(ROOM_LAYOUT_KEY_MAX_LENGTH, LAYOUT_MESSAGE);
+
+const RoomLayoutLabel = z
+  .string()
+  .trim()
+  .min(1, ROOM_LAYOUT_LABEL_REQUIRED_MESSAGE)
+  .max(ROOM_LAYOUT_LABEL_MAX_LENGTH, ROOM_LAYOUT_LABEL_TOO_LONG_MESSAGE);
+
+/** Add a layout type, or rename one by saving its key with a new label. */
+export const RoomLayoutInput = z.object({ key: RoomLayoutKey, label: RoomLayoutLabel });
+export type RoomLayoutValues = z.infer<typeof RoomLayoutInput>;
+
+/** Delete a layout type by its key. The handler names the venues that still support it. */
+export const RoomLayoutKeyInput = z.object({ key: RoomLayoutKey });
+export type RoomLayoutKey = z.infer<typeof RoomLayoutKeyInput>;
+
+export function parseRoomLayoutInput(data: unknown): RoomLayoutValues {
+  const parsed = RoomLayoutInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+export function parseRoomLayoutKey(data: unknown): RoomLayoutKey {
+  const parsed = RoomLayoutKeyInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
 
 /** `<input type="time">` submits 24-hour `HH:MM` values without seconds. Venue requests use this too. */
 export const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -203,8 +306,10 @@ export const VenueInput = z.object({
   turnaroundMinutes: bufferMinutes("Turnaround time"),
   facilities: TagList.default([]),
   accessibilityFeatures: TagList.default([]),
+  // PTR-161: check only the key shape here. The save handler refuses an unknown key with
+  // `LAYOUT_MESSAGE`, so a new layout type works without a code change.
   supportedLayouts: z
-    .array(z.enum(VENUE_LAYOUTS, { error: LAYOUT_MESSAGE }))
+    .array(RoomLayoutKey)
     .transform(values => [...new Set(values)])
     .default([]),
   operatingHours: OperatingHoursSchema,
@@ -247,7 +352,7 @@ export const VenueFormShape = z.object({
   turnaroundMinutes: bufferField("Turnaround time"),
   facilities: FormTagString,
   accessibilityFeatures: FormTagString,
-  supportedLayouts: z.array(z.enum(VENUE_LAYOUTS, { error: LAYOUT_MESSAGE })),
+  supportedLayouts: z.array(RoomLayoutKey),
   operatingHours: z.record(z.enum(WEEKDAYS), DayFormShape),
 });
 export type VenueFormValues = z.infer<typeof VenueFormShape>;
@@ -454,6 +559,8 @@ const OptionalSearchTime = z.preprocess(blankToUndefined, Time.optional());
 /**
  * URL filters for venue search (PTR-29). Keep strings as entered so the Coordinator can see the
  * event's free-text requirements. The suitability evaluator normalizes them before comparison.
+ * PTR-161: check only shapes here. The search handler refuses a layout that names no maintained
+ * layout with `LAYOUT_MESSAGE`, so a new layout type works without a code change.
  */
 export const VenueSearchSchema = z
   .object({
@@ -510,10 +617,6 @@ export const VenueSearchSchema = z
         message: VENUE_TIME_ORDER_MESSAGE,
       });
     }
-    // A typo must not silently match nothing. An empty result reads as "none available".
-    if (value.layout !== undefined && parseLayouts(value.layout).length === 0) {
-      ctx.addIssue({ code: "custom", path: ["layout"], message: LAYOUT_MESSAGE });
-    }
   });
 
 export type VenueSearch = z.infer<typeof VenueSearchSchema>;
@@ -548,6 +651,33 @@ export const VenueSearchFormInput = VenueSearchFormShape.transform(
     facilities: values.facilities,
   })
 ).pipe(VenueSearchSchema);
+
+/**
+ * Build the search form validator for the maintained list. The base schema checks shapes only,
+ * so a typo reaches the handler. This refinement refuses it in the form with the same words,
+ * using the loader list. A typo must not silently match nothing.
+ */
+export function createVenueSearchFormInput(layouts: readonly Pick<RoomLayout, "key" | "label">[]) {
+  return VenueSearchFormShape.transform((values): z.input<typeof VenueSearchSchema> => ({
+    eventId: values.eventId,
+    date: values.date,
+    endDate: values.endDate,
+    startTime: values.startTime,
+    endTime: values.endTime,
+    expectedAttendance: values.expectedAttendance,
+    capacity: values.capacity,
+    location: values.location,
+    accessibility: values.accessibility,
+    layout: values.layout,
+    facilities: values.facilities,
+  }))
+    .pipe(VenueSearchSchema)
+    .superRefine((value, ctx) => {
+      if (value.layout !== undefined && parseLayouts(value.layout, layouts).length === 0) {
+        ctx.addIssue({ code: "custom", path: ["layout"], message: LAYOUT_MESSAGE });
+      }
+    });
+}
 
 /**
  * Check whether a start/end pair crosses midnight. `VenueSearchSchema` accepts `22:00` to `02:00`

@@ -23,6 +23,7 @@ import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_INFORMATION_FIELDS, significantFields } from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import type { EventRequestDetail, EventRequestDraft } from "#/features/event-requests/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
 import { skipRootFilter } from "#/lib/invalidate";
@@ -72,6 +73,8 @@ type UpdateEventInformationProps = {
   > | null;
   onApplyEnd?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** The maintained room layout list, from the route loader. The form reads it (PTR-161 AC1). */
+  layouts?: readonly RoomLayout[];
 };
 
 function UpdateEventInformationBody({
@@ -79,6 +82,7 @@ function UpdateEventInformationBody({
   applying = null,
   onApplyEnd,
   onDirtyChange,
+  layouts,
 }: UpdateEventInformationProps) {
   const router = useRouter();
   const formId = useId();
@@ -284,6 +288,7 @@ function UpdateEventInformationBody({
               <EventRequestForm
                 key={applying ? `apply-${applying.id}` : "edit"}
                 initialValues={toDraftValues(request)}
+                layouts={layouts}
                 saveLabel={saveLabel}
                 busyLabel={saving ? "Saving…" : saveLabel}
                 requireComplete

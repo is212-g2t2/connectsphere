@@ -57,7 +57,7 @@ test.describe("Event access", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
     await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
-    await expect(page.getByLabel("Your registration: Registered").first()).toBeVisible();
+    await expect(page.getByText("Registered", { exact: true }).first()).toBeVisible();
     // The seed changes the event dates on every run. Check the card structure, date, and time; the
     // card omits the venue, which stays on the event page.
     await expect(page.getByText(/\d{1,2} [A-Z][a-z]{2} \d{4}/).first()).toBeVisible();
@@ -74,6 +74,7 @@ test.describe("Event access", () => {
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
     await page.locator("#confirmPassword").fill(password);
+    await page.locator("#role-attendee").check();
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
       timeout: 10_000,
@@ -81,8 +82,10 @@ test.describe("Event access", () => {
 
     await page.goto("/dashboard");
 
-    // The seed's confirmed demo event has registration enabled, so a new Attendee sees "attendee access".
-    await expect(page.getByText("attendee access").first()).toBeVisible({ timeout: 10_000 });
+    // The seed's confirmed demo event has registration enabled, so a new Attendee sees it on their home.
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
   });
 
@@ -96,6 +99,7 @@ test.describe("Event access", () => {
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
     await page.locator("#confirmPassword").fill(password);
+    await page.locator("#role-attendee").check();
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
       timeout: 10_000,
@@ -114,7 +118,7 @@ test.describe("Event access", () => {
     // Check the structure because the seed changes its dates on every run.
     await expect(page.getByText(ATTENDEE_DEMO_VENUE_NAME).first()).toBeVisible();
     await expect(page.getByText("Level 2, ConnectSphere Marina Centre").first()).toBeVisible();
-    await expect(page.getByText(/Opens .+ – closes /)).toBeVisible();
+    await expect(page.getByText(/Registration closes /)).toBeVisible();
     await expect(page.getByRole("heading", { name: "About Event" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in Maps" })).toHaveCount(0);
     // These DOM checks cover the page. The integration test checks the projection's keys.
@@ -135,6 +139,7 @@ test.describe("Event access", () => {
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
     await page.locator("#confirmPassword").fill(password);
+    await page.locator("#role-attendee").check();
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
       timeout: 10_000,
@@ -172,6 +177,7 @@ test.describe("Event access", () => {
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
     await page.locator("#confirmPassword").fill(password);
+    await page.locator("#role-attendee").check();
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
       timeout: 10_000,
@@ -210,7 +216,9 @@ test.describe("Event access", () => {
     await signInAsSeeded(page, "coordinator.seed@example.com");
     await page.goto("/dashboard");
 
-    await expect(page.getByText("coordinator access").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Your coordination work" })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
@@ -254,7 +262,9 @@ test.describe("Event access", () => {
     await signInAsSeeded(page, "jane.doe@example.com");
     await page.goto("/dashboard");
 
-    await expect(page.getByText("organiser access").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
@@ -262,7 +272,9 @@ test.describe("Event access", () => {
     await signInAsSeeded(page, "venue.staff.seed@example.com");
     await page.goto("/dashboard");
 
-    await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Venue operations" })).toBeVisible({
+      timeout: 10_000,
+    });
     // PTR-31 AC2: show the time, attendance, layout, accessibility, and facilities, not the event
     // name. The venue titles the card.
     await expect(page.getByRole("link", { name: "Harbour Hall" })).toBeVisible();
@@ -270,17 +282,20 @@ test.describe("Event access", () => {
     await expect(page.getByText(DEMO_EVENT_NAME)).toHaveCount(0);
     // Show the event status in a pill. The venue request's pending state appears in the event page's
     // request section. The seed adds shared queue rows, so scope the badge to the demo card.
-    const card = page.locator('div[data-slot="card"]', {
-      has: page.getByRole("link", { name: "Harbour Hall", exact: true }),
-    });
-    await expect(card.getByLabel("Status: Submitted")).toBeVisible();
+    const card = page
+      .getByRole("list", { name: "Events" })
+      .getByRole("listitem")
+      .filter({
+        has: page.getByRole("link", { name: "Harbour Hall", exact: true }),
+      });
+    await expect(card.getByText("Event: Submitted")).toBeVisible();
   });
 
   test("gives technical support their event, with the equipment on its page", async ({ page }) => {
     await signInAsSeeded(page, "tech.support.seed@example.com");
     await page.goto("/dashboard");
 
-    await expect(page.getByText("technical support access").first()).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Equipment work" })).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
@@ -296,7 +311,7 @@ test.describe("Event access", () => {
     await signUpAsOrganiser(page);
     await page.goto("/dashboard");
 
-    await expect(page.getByText("No events are currently connected to your account.")).toBeVisible({
+    await expect(page.getByText("Start your first request to see it here.")).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -308,8 +323,7 @@ test.describe("Event access", () => {
     const html = await response.text();
 
     // Loader data appears in server HTML; an unauthenticated or empty response lacks both strings.
-    // React separates the two access label text nodes with a comment node.
-    expect(html.replaceAll("<!-- -->", "")).toContain("coordinator access");
+    expect(html.replaceAll("<!-- -->", "")).toContain("Your coordination work");
     expect(html).toContain(DEMO_EVENT_NAME);
   });
 });

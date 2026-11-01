@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,6 +19,9 @@ const { mockInvalidate, mockPlace, mockDecline, mockToastError } = vi.hoisted(()
 }));
 
 vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
   useRouter: () => ({ invalidate: mockInvalidate }),
 }));
 
@@ -41,6 +44,14 @@ const request: VenueHoldRequest = {
   requestedAt: "2099-06-01T14:30",
 };
 
+const otherRequest: VenueHoldRequest = {
+  id: "hold-2",
+  venueName: "Orchid Room",
+  startsAt: "2099-06-16T09:00",
+  endsAt: "2099-06-16T12:00",
+  requestedAt: "2099-06-02T14:30",
+};
+
 /** PTR-150 AC2, AC3, AC5: the shared hold-request queue. */
 describe("VenueHoldRequestsPage", () => {
   it("shows the venue, window and requested time of each request (AC2)", () => {
@@ -52,7 +63,37 @@ describe("VenueHoldRequestsPage", () => {
 
   it("says when no request is waiting", () => {
     render(<VenueHoldRequestsPage requests={[]} />);
+    // The Empty state carries the reason and the action; the count line stays hidden.
+    expect(screen.queryByText("0 hold requests waiting")).toBeNull();
     expect(screen.getByText("No hold requests are waiting.")).toBeTruthy();
+    expect(
+      screen.getByText("Coordinator requests appear here for placement with an expiry.")
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to dashboard" })).toBeTruthy();
+  });
+
+  it("counts the queue", () => {
+    render(<VenueHoldRequestsPage requests={[request, otherRequest]} />);
+    expect(screen.getByText("2 hold requests waiting")).toBeTruthy();
+  });
+
+  it("filters by venue and day", async () => {
+    const user = userEvent.setup();
+    render(<VenueHoldRequestsPage requests={[request, otherRequest]} />);
+
+    await user.click(screen.getByLabelText("Filter by venue"));
+    await user.click(await screen.findByRole("option", { name: "Orchid Room" }));
+    expect(screen.queryByRole("listitem", { name: "Harbour Hall" })).toBeNull();
+    expect(screen.getByRole("listitem", { name: "Orchid Room" })).toBeTruthy();
+    expect(screen.getByText("Showing 1 of 2 hold requests")).toBeTruthy();
+  });
+
+  it("says when no request matches the filters", () => {
+    render(<VenueHoldRequestsPage requests={[request]} />);
+
+    fireEvent.change(screen.getByLabelText("Filter by day"), { target: { value: "2099-06-16" } });
+    expect(screen.getByText("No hold requests match these filters.")).toBeTruthy();
+    expect(screen.getByText("Showing 0 of 1 hold requests")).toBeTruthy();
   });
 
   it("places a request with the expiry (AC3)", async () => {
