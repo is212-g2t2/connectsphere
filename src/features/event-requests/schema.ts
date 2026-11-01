@@ -303,6 +303,43 @@ export function parseEventRequestId(data: unknown) {
   return parsed.data;
 }
 
+/** PTR-157 AC1: actual attendance is a whole number of zero or more. It is optional. */
+export const ACTUAL_ATTENDANCE_MESSAGE = "Actual attendance must be a whole number of zero or more";
+export const ACTUAL_ATTENDANCE_MAX_MESSAGE = `Actual attendance must be ${ATTENDANCE_MAX} or fewer`;
+const ActualAttendanceField = z
+  .number({ error: ACTUAL_ATTENDANCE_MESSAGE })
+  .int(ACTUAL_ATTENDANCE_MESSAGE)
+  .min(0, ACTUAL_ATTENDANCE_MESSAGE)
+  .max(ATTENDANCE_MAX, ACTUAL_ATTENDANCE_MAX_MESSAGE)
+  .optional();
+export const EventCompleteInput = EventRequestIdInput.extend({
+  actualAttendance: ActualAttendanceField,
+});
+
+export function parseEventCompleteInput(data: unknown) {
+  const parsed = EventCompleteInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+/**
+ * PTR-157 AC3: the assigned Coordinator sets or corrects the turnout on a completed event.
+ * The field repeats the completion count, so a correction cannot drift from the close-out rule.
+ */
+export const EventAttendanceInput = EventRequestIdInput.extend({
+  actualAttendance: ActualAttendanceField,
+});
+
+export function parseEventAttendanceInput(data: unknown) {
+  const parsed = EventAttendanceInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
 /** PTR-51: the Organiser must state both the target of the change and the requested new value. */
 export const CHANGE_REQUEST_TEXT_MAX = 2000;
 export const EventChangeRequestInput = EventRequestIdInput.extend({

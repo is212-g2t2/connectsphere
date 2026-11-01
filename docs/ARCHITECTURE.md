@@ -231,6 +231,7 @@ erDiagram
         text completed_by_id
         text completed_by_name
         timestamp completed_at
+        int actual_attendance
     }
     event_assignments {
         int id PK

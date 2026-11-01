@@ -526,6 +526,32 @@ describe("event access", () => {
     });
   });
 
+  describe("actual attendance (PTR-157 AC2)", () => {
+    it.each(["organiser", "coordinator"] as const)(
+      "carries the recorded turnout for the %s",
+      access => {
+        const result = projectEvent({ ...request, actualAttendance: 87 }, access, null, [], []);
+        expect(result.event.actualAttendance).toBe(87);
+      }
+    );
+
+    it.each(["organiser", "coordinator"] as const)(
+      "carries a null turnout when none was recorded for the %s",
+      access => {
+        const result = projectEvent(request, access, null, [], []);
+        expect(result.event.actualAttendance).toBeNull();
+      }
+    );
+
+    it.each(["lead", "venue_staff", "technical_support", "attendee", "safety_officer"] as const)(
+      "withholds the turnout from %s",
+      access => {
+        const result = projectEvent({ ...request, actualAttendance: 87 }, access, null, [], []);
+        expect(result.event).not.toHaveProperty("actualAttendance");
+      }
+    );
+  });
+
   it("projects the lead's read-only record with its assignment flag (PTR-144)", () => {
     const equipment = [
       {

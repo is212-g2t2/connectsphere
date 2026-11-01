@@ -28,6 +28,10 @@ interface EventTransitionActionProps {
   pendingLabel: string;
   dialogTitle: string;
   dialogDescription: ReactNode;
+  /** Extra form content between the description and the actions, such as an optional count. */
+  dialogExtra?: ReactNode;
+  /** Disable the confirm action while the extra content is invalid. */
+  canSubmit?: boolean;
   actionLabel: string;
   successMessage: string;
   failureMessage: string;
@@ -45,6 +49,8 @@ export function EventTransitionAction({
   pendingLabel,
   dialogTitle,
   dialogDescription,
+  dialogExtra,
+  canSubmit = true,
   actionLabel,
   successMessage,
   failureMessage,
@@ -108,13 +114,14 @@ export function EventTransitionAction({
               <AlertDialogTitle>{dialogTitle}</AlertDialogTitle>
               <AlertDialogDescription>{dialogDescription}</AlertDialogDescription>
             </AlertDialogHeader>
+            {dialogExtra}
             <AlertDialogFooter>
               <AlertDialogCancel size="sm" disabled={transitioning}>
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
                 size="sm"
-                disabled={transitioning}
+                disabled={transitioning || !canSubmit}
                 onClick={() => void transition()}
               >
                 {transitioning ? pendingLabel : actionLabel}

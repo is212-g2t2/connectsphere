@@ -2,9 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission, requireSession } from "#/features/auth/session";
 import {
+  parseEventAttendanceInput,
   parseEventCancellationDeclineInput,
   parseEventCancellationInput,
   parseEventChangeRequestDeclineInput,
+  parseEventCompleteInput,
   parseEventInformationInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
@@ -293,12 +295,29 @@ export const removeVipRegistration = createServerFn({ method: "POST" })
 /** PTR-25: Only an Event Coordinator reaches the handler. It re-checks the live assignment. */
 export const completeEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
-  .validator(parseEventRequestId)
+  .validator(parseEventCompleteInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleCompleteEvent }] = await loadCompleteServer();
     const event = await handleCompleteEvent(data, context.user, db);
 
     log.info("Event completed", { eventId: event.id, actorId: context.user.id });
+
+    return event;
+  });
+
+/**
+ * PTR-157 AC3: the assigned Coordinator sets or corrects the turnout on a completed event.
+ * The handler re-reads the assignment and the completed status. The permission only states
+ * that the caller may coordinate.
+ */
+export const updateEventAttendance = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventAttendanceInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleUpdateEventAttendance }] = await loadCompleteServer();
+    const event = await handleUpdateEventAttendance(data, context.user, db);
+
+    log.info("Event attendance updated", { eventId: event.id, actorId: context.user.id });
 
     return event;
   });

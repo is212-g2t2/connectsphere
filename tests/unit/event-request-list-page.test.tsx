@@ -86,6 +86,7 @@ const base: EventRequestDetail = {
   purpose: "",
   proposedDates: [],
   expectedAttendance: null,
+  actualAttendance: null,
   description: "",
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,

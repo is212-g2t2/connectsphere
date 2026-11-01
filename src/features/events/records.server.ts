@@ -367,6 +367,7 @@ export async function handleListEvents(
             description: eventRequests.description,
             proposedDates: eventRequests.proposedDates,
             expectedAttendance: eventRequests.expectedAttendance,
+            actualAttendance: eventRequests.actualAttendance,
             venueRequirements: eventRequests.venueRequirements,
             roomLayoutPreference: eventRequests.roomLayoutPreference,
             accessibilityRequirements: eventRequests.accessibilityRequirements,

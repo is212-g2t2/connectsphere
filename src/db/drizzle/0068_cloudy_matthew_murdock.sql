@@ -1,0 +1,2 @@
+ALTER TABLE "event_requests" ADD COLUMN "actual_attendance" integer;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_actual_attendance_nonnegative" CHECK ("event_requests"."actual_attendance" is null or "event_requests"."actual_attendance" >= 0);
