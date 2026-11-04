@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-04
+
+### Added
+
+- **Room layout catalogue**: Venue Staff add, rename, and delete room layout types at `/venues/layouts`. The seed adds the six current types, a venue save refuses an unknown key, and a rename keeps every venue's tick under the new label. A delete is refused while any venue supports the layout, and the refusal names them. The event form offers the maintained list.
+- **Equipment catalogue**: Technical Support Staff add equipment types and set the quantity held at `/equipment-types`. An out-of-service quantity needs a reason and cannot exceed the quantity held, and a delete is refused while equipment lines or reservations use the type. Work lists show "Short by N" from peak overlapping reservations, and a free-text request line must map to a catalogue type before reservation.
+- **Cancellation and change reasons**: a Coordinator enters a non-blank reason to cancel an event or to save a significant change. The Organiser and each registered Attendee get the cancellation reason, the Organiser gets the change reason, and the event history shows both. Venue Staff and Technical Support holding arrangements get a notice without the reason, so it cannot identify the event.
+- **Closed waiting requests**: cancelling an event declines its waiting change requests as "Event cancelled", and completing an event declines its waiting change and cancellation requests as "Event completed". Each outcome records the acting Coordinator and the time. The Organiser gets a notice, and the coordination queue keeps only requests that still need action.
+- **Actual attendance**: the Coordinator can record turnout when completing an event, as a whole number of zero or more that may differ from the registration count. The Organiser and Coordinator see the figure beside expected attendance, or "Not recorded". The assigned Coordinator can set or correct it later, and the event stays completed.
+
+### Changed
+
+- **Role surfaces**: the dashboards, queues, event rows, and header are rebuilt for each role, and venue discovery, venue detail, the calendar, the request forms, and room layout maintenance get the same treatment. Account, sign-in, attendee, notification, and empty states follow.
+- **Venue search**: search extends the requested window by the venue's setup and turnaround time before it compares occupied periods, so it refuses the same windows that approval refuses. A refusal names the blocking booking, hold, or block.
+- **Hold expiry**: the check `venue_holds_held_requires_expiry` refuses a placed hold with no expiry. Migration 0066 expires the rows that predate the placement gate and frees their ledger rows ([ADR-7](docs/adrs/ADR-7-venue-occupancy-ledger.md)).
+- **Dependencies**: 30 dependency updates land in two batches, among them the Sentry SDK 11.8.0 to 11.10.0, `better-auth` 1.7.10 to 1.7.14, and `lucide-react` 1.58.0 to 1.65.0. `bun audit fix` patches `qs`, `seroval`, and `systeminformation`, and overrides pin patched `glob` and `minimatch` majors.
+
 ## [0.6.0] - 2026-10-25
 
 ### Added
